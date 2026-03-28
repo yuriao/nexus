@@ -1,0 +1,156 @@
+version: "3.9"
+
+x-common-env: &common-env
+  DB_HOST: mysql
+  DB_PORT: 3306
+  DB_USER: ${DB_USER:-nexus}
+  DB_PASSWORD: ${DB_PASSWORD:-nexus_secret}
+  REDIS_URL: redis://redis:6379/0
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+  DJANGO_DEBUG: "false"
+  OPENAI_API_KEY: ${OPENAI_API_KEY}
+  BRAVE_API_KEY: ${BRAVE_API_KEY}
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_secret}
+      MYSQL_USER: ${DB_USER:-nexus}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-nexus_secret}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./infra/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD","mysqladmin","ping","-h","localhost","-uroot","-p${MYSQL_ROOT_PASSWORD:-root_secret}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks: [nexus-net]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD","redis-cli","ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [nexus-net]
+
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      DB_NAME: ${AUTH_DB_NAME:-nexus_auth}
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,auth-service,nginx,${SERVER_HOST:-8.218.95.2}"
+      JWT_ACCESS_TOKEN_LIFETIME_MINUTES: ${JWT_ACCESS_TOKEN_LIFETIME_MINUTES:-60}
+      JWT_REFRESH_TOKEN_LIFETIME_DAYS: ${JWT_REFRESH_TOKEN_LIFETIME_DAYS:-7}
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis:  { condition: service_healthy }
+    command: >
+      sh -c "python manage.py migrate &&
+             gunicorn auth_service.wsgi:application --bind 0.0.0.0:8001 --workers 2"
+    networks: [nexus-net]
+
+  core-api:
+    build:
+      context: ./services/core-api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      DB_NAME: ${DB_NAME:-nexus_core}
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,core-api,nginx,${SERVER_HOST:-8.218.95.2}"
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis:  { condition: service_healthy }
+    command: >
+      sh -c "python manage.py migrate &&
+             daphne -b 0.0.0.0 -p 8000 core_api.asgi:application"
+    networks: [nexus-net]
+
+  agent-service:
+    build:
+      context: ./services/agent-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      DB_NAME: ${DB_NAME:-nexus_core}
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis:  { condition: service_healthy }
+    networks: [nexus-net]
+
+  celery-agent-worker:
+    build:
+      context: ./services/agent-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      DB_NAME: ${DB_NAME:-nexus_core}
+    command: celery -A celery_app worker -Q agent -c 2 -l info --without-gossip
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis:  { condition: service_healthy }
+    networks: [nexus-net]
+
+  scraper-service:
+    build:
+      context: ./services/scraper-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      DB_NAME: ${DB_NAME:-nexus_core}
+      SELENIUM_HEADLESS: "true"
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis:  { condition: service_healthy }
+    networks: [nexus-net]
+
+  celery-scraper-worker:
+    build:
+      context: ./services/scraper-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      DB_NAME: ${DB_NAME:-nexus_core}
+      SELENIUM_HEADLESS: "true"
+    command: celery -A celery_app worker -Q scraper -c 4 -l info --without-gossip
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis:  { condition: service_healthy }
+    networks: [nexus-net]
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports: ["8080:8080"]
+    volumes:
+      - ./infra/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend_dist:/usr/share/nginx/html/nexus-dashboard:ro
+    depends_on: [auth-service, core-api]
+    networks: [nexus-net]
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  nexus-net:
+    driver: bridge
