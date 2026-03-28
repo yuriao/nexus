@@ -28,13 +28,20 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            # Rebuild and restart (skip scraper — heavy, only when needed)
+            # Build only core services (skip scraper — needs Chrome/Selenium, build separately)
             docker compose -f docker-compose.prod.yml build \
               auth-service core-api agent-service celery-agent-worker
-            docker compose -f docker-compose.prod.yml up -d
 
-            # Wait for health
+            # Restart core services only
+            docker compose -f docker-compose.prod.yml up -d \
+              mysql redis auth-service core-api agent-service celery-agent-worker nginx
+
+            # Run migrations if needed
             sleep 10
+            docker exec nexus-core-api-1 python manage.py migrate --fake-initial || true
+            docker exec nexus-auth-service-1 python manage.py migrate --fake-initial || true
+
+            # Health check
             curl -sf http://localhost:8080/health && echo "✅ Backend healthy"
 
       - name: Health check
