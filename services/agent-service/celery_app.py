@@ -1,3 +1,5 @@
+import os, sys
+sys.path.insert(0, '/app')
 import os
 from celery import Celery
 
