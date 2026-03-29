@@ -53,23 +53,33 @@ def writer_node(state: ResearchState) -> dict:
     critique = state.get("critique", [])
     iteration = state.get("iteration", 1)
 
-    model_name = state.get("model_name", "gpt-4o")
+    model_name = state.get("model_name", "moonshot-v1-32k")
     llm = ChatOpenAI(
         model=model_name,
         temperature=0.2,
-        openai_api_key=os.environ.get("OPENAI_API_KEY"),
+        openai_api_key=os.environ.get("MOONSHOT_API_KEY", os.environ.get("OPENAI_API_KEY")),
+        base_url=os.environ.get("OPENAI_BASE_URL"),
     )
 
-    notes_text = "\n".join(f"- {n}" for n in research_notes)
-    opps = "\n".join(f"- {o}" for o in analysis.get("opportunities", []))
-    risks = "\n".join(f"- {r}" for r in analysis.get("risks", []))
-    trends = "\n".join(f"- {t}" for t in analysis.get("trends", []))
+    notes_text = "
+".join(f"- {n}" for n in research_notes)
+    opps = "
+".join(f"- {o}" for o in analysis.get("opportunities", []))
+    risks = "
+".join(f"- {r}" for r in analysis.get("risks", []))
+    trends = "
+".join(f"- {t}" for t in analysis.get("trends", []))
 
     critique_section = ""
     if critique and iteration > 1:
-        issues = "\n".join(f"- {c}" for c in critique)
+        issues = "
+".join(f"- {c}" for c in critique)
         critique_section = (
-            f"\n\nPrevious critique issues to address in this revision:\n{issues}\n"
+            f"
+
+Previous critique issues to address in this revision:
+{issues}
+"
             "Make sure to explicitly fix each of these issues."
         )
 
@@ -110,7 +120,9 @@ Write the full report now."""
         )
     except Exception as exc:
         logger.error("Writer node error: %s", exc)
-        draft_report = f"# Report for {company_name}\n\nError generating report: {exc}"
+        draft_report = f"# Report for {company_name}
+
+Error generating report: {exc}"
 
     return {
         "draft_report": draft_report,
