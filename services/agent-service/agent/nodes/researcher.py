@@ -50,17 +50,23 @@ def researcher_node(state: ResearchState) -> dict:
     # If this is a re-run after critique, add context about what to fix
     critique_context = ""
     if critique and iteration > 0:
-        issues = "\n".join(f"- {c}" for c in critique)
+        issues = "
+".join(f"- {c}" for c in critique)
         critique_context = (
-            f"\n\nPrevious critique found these issues that need more research:\n{issues}\n"
+            f"
+
+Previous critique found these issues that need more research:
+{issues}
+"
             "Focus on addressing these gaps in this iteration."
         )
 
-    model_name = state.get("model_name", "gpt-4o")
+    model_name = state.get("model_name", "moonshot-v1-32k")
     llm = ChatOpenAI(
         model=model_name,
         temperature=0.1,
-        openai_api_key=os.environ.get("OPENAI_API_KEY"),
+        openai_api_key=os.environ.get("MOONSHOT_API_KEY", os.environ.get("OPENAI_API_KEY")),
+        base_url=os.environ.get("OPENAI_BASE_URL"),
     )
 
     tools = [web_search, fetch_url, query_collected_data]
@@ -102,12 +108,14 @@ def researcher_node(state: ResearchState) -> dict:
                 if isinstance(content, str):
                     # Parse numbered list items as individual notes
                     import re
-                    notes = re.findall(r"\d+\.\s+(.+?)(?=\n\d+\.|\Z)", content, re.DOTALL)
+                    notes = re.findall(r"\d+\.\s+(.+?)(?=
+\d+\.|\Z)", content, re.DOTALL)
                     research_notes = [n.strip() for n in notes if len(n.strip()) > 20]
                     if not research_notes and content:
                         # Fallback: split by newlines
                         research_notes = [
-                            line.strip() for line in content.split("\n")
+                            line.strip() for line in content.split("
+")
                             if len(line.strip()) > 30
                         ]
                 break
