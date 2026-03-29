@@ -40,7 +40,7 @@ class TriggerReportView(APIView):
         try:
             from celery import current_app
             current_app.send_task(
-                "agent.tasks.run_agent_analysis",
+                "tasks.run_agent_analysis",
                 kwargs={
                     "company_id": company.id,
                     "report_id": str(report.id),
