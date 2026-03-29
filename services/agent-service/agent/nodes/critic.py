@@ -52,7 +52,7 @@ def critic_node(state: ResearchState) -> dict:
             "confidence_score": 0.0,
         }
 
-    model_name = state.get("model_name", "moonshot-v1-32k")
+    model_name = state.get("model_name", "moonshot-v1-8k")
     llm = ChatOpenAI(
         model=model_name,
         temperature=0.0,  # Deterministic for fact-checking
@@ -65,14 +65,8 @@ def critic_node(state: ResearchState) -> dict:
         HumanMessage(
             content=(
                 f"Review this competitive intelligence report about {company_name} "
-                f"(iteration {iteration}):
-
-"
-                f"---
-{draft_report}
----
-
-"
+                f"(iteration {iteration}):\n\n"
+                f"---\n{draft_report}\n---\n\n"
                 "Identify all quality issues and assign a confidence score."
             )
         ),
@@ -88,9 +82,7 @@ def critic_node(state: ResearchState) -> dict:
 
         # Parse issues
         issues_match = re.search(
-            r"ISSUES:\s*
-((?:\s*[-•*]\s*.+
-?)*|None)",
+            r"ISSUES:\s*\n((?:\s*[-•*]\s*.+\n?)*|None)",
             content,
             re.IGNORECASE,
         )
@@ -99,8 +91,7 @@ def critic_node(state: ResearchState) -> dict:
             if raw_issues.lower() != "none":
                 critique = [
                     re.sub(r"^[-•*]\s*", "", line).strip()
-                    for line in raw_issues.split("
-")
+                    for line in raw_issues.split("\n")
                     if line.strip() and not line.strip().lower() == "none"
                 ]
 
@@ -151,9 +142,7 @@ def critic_node(state: ResearchState) -> dict:
 def _extract_executive_summary(report_text: str) -> str:
     """Extract the Executive Summary section from the report."""
     match = re.search(
-        r"##\s*Executive Summary\s*
-(.*?)(?=
-##|\Z)",
+        r"##\s*Executive Summary\s*\n(.*?)(?=\n##|\Z)",
         report_text,
         re.DOTALL | re.IGNORECASE,
     )
@@ -163,15 +152,12 @@ def _extract_executive_summary(report_text: str) -> str:
 def _extract_predictions(report_text: str) -> list[str]:
     """Extract the Predictions section as a list."""
     match = re.search(
-        r"##\s*Predictions?\s*
-(.*?)(?=
-##|\Z)",
+        r"##\s*Predictions?\s*\n(.*?)(?=\n##|\Z)",
         report_text,
         re.DOTALL | re.IGNORECASE,
     )
     if not match:
         return []
     section = match.group(1)
-    items = re.findall(r"[-•*\d.]\s*(.+?)(?=
-[-•*\d]|\Z)", section, re.DOTALL)
+    items = re.findall(r"[-•*\d.]\s*(.+?)(?=\n[-•*\d]|\Z)", section, re.DOTALL)
     return [item.strip() for item in items if len(item.strip()) > 10]
