@@ -62,25 +62,33 @@ def analyst_node(state: ResearchState) -> dict:
             }
         }
 
-    model_name = state.get("model_name", "gpt-4o")
+    model_name = state.get("model_name", "moonshot-v1-32k")
     llm = ChatOpenAI(
         model=model_name,
         temperature=0.1,
-        openai_api_key=os.environ.get("OPENAI_API_KEY"),
+        openai_api_key=os.environ.get("MOONSHOT_API_KEY", os.environ.get("OPENAI_API_KEY")),
+        base_url=os.environ.get("OPENAI_BASE_URL"),
     )
 
     tools = [compute_trend, query_collected_data]
     llm_with_tools = llm.bind_tools(tools)
 
-    notes_text = "\n".join(f"{i+1}. {note}" for i, note in enumerate(research_notes))
+    notes_text = "
+".join(f"{i+1}. {note}" for i, note in enumerate(research_notes))
 
     messages = [
         SystemMessage(content=ANALYST_SYSTEM.format(company_name=company_name)),
         HumanMessage(
             content=(
-                f"Analyse these research notes about {company_name}:\n\n{notes_text}\n\n"
+                f"Analyse these research notes about {company_name}:
+
+{notes_text}
+
+"
                 f"You also have {len(raw_data_points)} raw data points available via "
-                f"query_collected_data('{company_id}') and compute_trend() for trend analysis.\n\n"
+                f"query_collected_data('{company_id}') and compute_trend() for trend analysis.
+
+"
                 "Produce a structured analysis with opportunities, risks, and trends."
             )
         ),
@@ -132,10 +140,13 @@ def _parse_analyst_response(content: str) -> dict:
     import re
 
     def extract_section(label: str) -> list[str]:
-        pattern = rf"{label}:\s*\n((?:\s*[-•*]\s*.+\n?)+)"
+        pattern = rf"{label}:\s*
+((?:\s*[-•*]\s*.+
+?)+)"
         match = re.search(pattern, content, re.IGNORECASE)
         if match:
-            lines = match.group(1).strip().split("\n")
+            lines = match.group(1).strip().split("
+")
             return [re.sub(r"^[-•*]\s*", "", l).strip() for l in lines if l.strip()]
         return []
 
