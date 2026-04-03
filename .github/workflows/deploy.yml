@@ -10,20 +10,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Debug DB connection
+      - name: Rebuild and final test
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            echo "Celery DB_NAME:"
-            docker exec nexus-celery-agent-worker-1 env | grep "^DB_NAME"
-            echo "Celery DB_HOST:"
-            docker exec nexus-celery-agent-worker-1 env | grep "^DB_HOST"
-            echo "MySQL show databases:"
-            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret -e "SHOW DATABASES;" 2>/dev/null
-            echo "Report count in nexus_core:"
-            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core -e "SELECT count(*) FROM reports_researchreport;" 2>/dev/null
-            echo "Latest report status:"
-            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core -e "SELECT LOWER(HEX(id)), status, confidence_score FROM reports_researchreport ORDER BY created_at DESC LIMIT 3;" 2>/dev/null
+            cd /opt/nexus
+            git stash && git fetch origin main && git reset --hard origin/main
+            docker compose -f docker-compose.prod.yml build --no-cache celery-agent-worker
+            docker compose -f docker-compose.prod.yml up -d --force-recreate celery-agent-worker
+            echo "Rebuilt with UNHEX fix"
