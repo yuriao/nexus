@@ -10,23 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fix env and redeploy
+      - name: Check live logs
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            echo "=== Current .env OPENAI_BASE_URL ==="
-            grep OPENAI_BASE_URL /opt/nexus/.env || echo "not set"
-            echo ""
-            echo "=== Fixing .env ==="
-            sed -i 's|OPENAI_BASE_URL=.*|OPENAI_BASE_URL=https://api.moonshot.cn/v1|' /opt/nexus/.env
-            grep -q "OPENAI_BASE_URL" /opt/nexus/.env || echo "OPENAI_BASE_URL=https://api.moonshot.cn/v1" >> /opt/nexus/.env
-            grep OPENAI_BASE_URL /opt/nexus/.env
-            echo ""
-            echo "=== Restarting worker ==="
-            cd /opt/nexus
-            docker compose -f docker-compose.prod.yml up -d --force-recreate celery-agent-worker
-            sleep 3
-            docker exec nexus-celery-agent-worker-1 env | grep BASE_URL
+            docker logs nexus-celery-agent-worker-1 --tail 30 2>&1
