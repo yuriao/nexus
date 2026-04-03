@@ -31,4 +31,4 @@ class ResearchReportSerializer(serializers.ModelSerializer):
 class TriggerReportSerializer(serializers.Serializer):
     company_id = serializers.IntegerField()
     max_iterations = serializers.IntegerField(default=3, min_value=1, max_value=10)
-    model_name = serializers.CharField(default="gpt-4o")
+    model_name = serializers.CharField(default="moonshot-v1-8k")
