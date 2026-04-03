@@ -10,19 +10,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Force rebuild worker
+      - name: Debug DB update
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            cd /opt/nexus
-            git stash
-            git fetch origin main
-            git reset --hard origin/main
-            echo "=== tasks.py commit line ==="
-            grep -n "commit" services/agent-service/tasks.py | head -5
-            docker compose -f docker-compose.prod.yml build --no-cache celery-agent-worker
-            docker compose -f docker-compose.prod.yml up -d --force-recreate celery-agent-worker
-            echo "Done"
+            docker logs nexus-celery-agent-worker-1 --tail 30 2>&1
+            echo "==="
+            # Check what's actually in DB for recent reports
+            docker exec nexus-mysql-1 mysql -u nexus -pnexus_secret nexus_core -e "SELECT id, status, confidence_score, LEFT(summary,50) as summary FROM reports_researchreport ORDER BY created_at DESC LIMIT 5;" 2>/dev/null
