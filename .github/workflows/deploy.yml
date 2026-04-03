@@ -19,7 +19,8 @@ jobs:
           script: |
             cd /opt/nexus
             git pull origin main
-            docker compose -f docker-compose.prod.yml build celery-agent-worker
-            docker compose -f docker-compose.prod.yml up -d celery-agent-worker
-            docker compose -f docker-compose.prod.yml restart celery-agent-worker
+            docker compose -f docker-compose.prod.yml build --no-cache celery-agent-worker
+            docker compose -f docker-compose.prod.yml up -d --force-recreate celery-agent-worker
+            echo "=== Agent container status ==="
+            docker ps --format "{{.Names}} {{.Status}}" | grep celery
             echo "Deploy complete"
