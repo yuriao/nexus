@@ -10,16 +10,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fix base URL back to moonshot.ai
+      - name: Test Kimi API
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            sed -i 's|OPENAI_BASE_URL=.*|OPENAI_BASE_URL=https://api.moonshot.ai/v1|' /opt/nexus/.env
-            grep OPENAI_BASE_URL /opt/nexus/.env
-            cd /opt/nexus
-            docker compose -f docker-compose.prod.yml up -d --force-recreate celery-agent-worker
-            sleep 3
-            docker exec nexus-celery-agent-worker-1 env | grep BASE_URL
+            MOONSHOT_KEY=$(grep MOONSHOT_API_KEY /opt/nexus/.env | cut -d= -f2)
+            BASE_URL=$(grep OPENAI_BASE_URL /opt/nexus/.env | cut -d= -f2)
+            echo "Base URL: $BASE_URL"
+            echo "Key prefix: ${MOONSHOT_KEY:0:8}..."
+            echo ""
+            echo "=== Available models ==="
+            curl -s "$BASE_URL/models" -H "Authorization: Bearer $MOONSHOT_KEY" | python3 -c "import json,sys; d=json.load(sys.stdin); [print(m['id']) for m in d.get('data',[])]" 2>&1
+            echo ""
+            echo "=== Test call with moonshot-v1-8k ==="
+            curl -s -X POST "$BASE_URL/chat/completions" \
+              -H "Authorization: Bearer $MOONSHOT_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{"model":"moonshot-v1-8k","messages":[{"role":"user","content":"say hi"}],"max_tokens":10}' | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('choices',[{}])[0].get('message',{}).get('content') or d.get('error'))" 2>&1
