@@ -171,7 +171,7 @@ def run_agent_analysis(
     company_id: int,
     report_id: str,
     max_iterations: int = 3,
-    model_name: str = "gpt-4o",
+    model_name: str = "moonshot-v1-8k",
 ):
     """
     Main Celery task: run the LangGraph multi-agent analysis pipeline.
