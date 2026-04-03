@@ -68,7 +68,8 @@ def _get_data_points(company_id: int, limit: int = 100) -> list[dict]:
 
 def _update_report(report_id: str, status: str, final_report: dict | None = None,
                    error: str | None = None) -> None:
-    # Use a fresh DB connection for each update to avoid any stale transaction state
+    # DB stores UUIDs without dashes
+    rid = report_id.replace("-", "")
     db = _get_db()
     try:
         cur = db.cursor()
@@ -91,23 +92,23 @@ def _update_report(report_id: str, status: str, final_report: dict | None = None
                     json.dumps(final_report.get("predictions", [])),
                     final_report.get("confidence_score"),
                     datetime.now(timezone.utc),
-                    report_id,
+                    rid,
                 ),
             )
             rows = cur.rowcount
             db.commit()
-            logger.info("Report %s committed as completed (rows=%d) (confidence=%.2f)",
-                        report_id, final_report.get("confidence_score") or 0)
+            logger.info("Report %s committed as completed (rows=%d, confidence=%.2f)",
+                        report_id, rows, final_report.get("confidence_score") or 0)
         elif status == "failed":
             cur.execute(
                 "UPDATE reports_researchreport SET status = %s, error_message = %s WHERE id = %s",
-                (status, error or "Unknown error", report_id_bin),
+                (status, error or "Unknown error", rid),
             )
             db.commit()
         else:
             cur.execute(
                 "UPDATE reports_researchreport SET status = %s WHERE id = %s",
-                (status, report_id_bin),
+                (status, rid),
             )
             db.commit()
     except Exception as e:
