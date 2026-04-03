@@ -10,13 +10,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Debug
+      - name: Debug DB connection
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            docker logs nexus-celery-agent-worker-1 --tail 20 2>&1
-            echo "=== DB check ==="
-            docker exec nexus-mysql-1 mysql -u nexus -pnexus_secret nexus_core -e "SELECT id, status, confidence_score FROM reports_researchreport ORDER BY created_at DESC LIMIT 3;" 2>/dev/null
+            echo "=== Celery env DB settings ==="
+            docker exec nexus-celery-agent-worker-1 env | grep -E "DB_|MYSQL" | grep -v PASSWORD
+            echo ""
+            echo "=== Databases in MySQL ==="
+            docker exec nexus-mysql-1 mysql -u nexus -pnexus_secret -e "SHOW DATABASES;" 2>/dev/null
+            echo ""
+            echo "=== Tables in nexus_core ==="
+            docker exec nexus-mysql-1 mysql -u nexus -pnexus_secret nexus_core -e "SHOW TABLES LIKE 'reports%';" 2>/dev/null
+            echo ""
+            echo "=== Direct DB update test ==="
+            docker exec nexus-celery-agent-worker-1 python3 -c "
+import MySQLdb, os
+db = MySQLdb.connect(
+    host=os.environ.get('DB_HOST','mysql'),
+    port=int(os.environ.get('DB_PORT','3306')),
+    user=os.environ.get('DB_USER','nexus'),
+    passwd=os.environ.get('DB_PASSWORD','nexus_secret'),
+    db=os.environ.get('DB_NAME','nexus_core'),
+    charset='utf8mb4',
+)
+cur = db.cursor()
+cur.execute("SELECT id, status FROM reports_researchreport ORDER BY created_at DESC LIMIT 1")
+row = cur.fetchone()
+print('Latest report from worker DB:', row)
+db.close()
+"
