@@ -93,7 +93,8 @@ def _update_report(report_id: str, status: str, final_report: dict | None = None
                     report_id,
                 ),
             )
-            # Insert report sections
+            db.commit()  # Commit report update immediately
+            # Insert report sections (best-effort, separate commit)
             full_text = final_report.get("full_text", "")
             if full_text:
                 sections = _parse_report_sections(full_text, report_id)
@@ -106,8 +107,11 @@ def _update_report(report_id: str, status: str, final_report: dict | None = None
                             (section["report_id"], section["section_type"],
                              section["content"], section["sort_order"]),
                         )
+                        db.commit()
                     except Exception as sec_err:
                         logger.warning("Section insert skipped: %s", sec_err)
+                        db.rollback()
+            return  # already committed above
         elif status == "failed":
             cur.execute(
                 "UPDATE reports_researchreport SET status = %s, error_message = %s WHERE id = %s",
