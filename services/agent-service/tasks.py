@@ -98,13 +98,16 @@ def _update_report(report_id: str, status: str, final_report: dict | None = None
             if full_text:
                 sections = _parse_report_sections(full_text, report_id)
                 for section in sections:
-                    cur.execute(
-                        """INSERT INTO reports_reportsection (report_id, section_type, content, sort_order)
-                           VALUES (%s, %s, %s, %s)
-                           ON DUPLICATE KEY UPDATE content = VALUES(content)""",
-                        (section["report_id"], section["section_type"],
-                         section["content"], section["sort_order"]),
-                    )
+                    try:
+                        cur.execute(
+                            """INSERT INTO reports_reportsection (report_id, section_type, content, sort_order)
+                               VALUES (%s, %s, %s, %s)
+                               ON DUPLICATE KEY UPDATE content = VALUES(content)""",
+                            (section["report_id"], section["section_type"],
+                             section["content"], section["sort_order"]),
+                        )
+                    except Exception as sec_err:
+                        logger.warning("Section insert skipped: %s", sec_err)
         elif status == "failed":
             cur.execute(
                 "UPDATE reports_researchreport SET status = %s, error_message = %s WHERE id = %s",
