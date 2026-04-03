@@ -10,15 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rebuild and test
+      - name: Live snapshot
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            cd /opt/nexus
-            git fetch origin main && git reset --hard origin/main
-            docker compose -f docker-compose.prod.yml build --no-cache celery-agent-worker
-            docker compose -f docker-compose.prod.yml up -d --force-recreate celery-agent-worker
-            echo "Worker restarted"
+            docker logs nexus-celery-agent-worker-1 --tail 15 2>&1
