@@ -17,29 +17,13 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            echo "=== Celery env DB settings ==="
-            docker exec nexus-celery-agent-worker-1 env | grep -E "DB_|MYSQL" | grep -v PASSWORD
-            echo ""
-            echo "=== Databases in MySQL ==="
-            docker exec nexus-mysql-1 mysql -u nexus -pnexus_secret -e "SHOW DATABASES;" 2>/dev/null
-            echo ""
-            echo "=== Tables in nexus_core ==="
-            docker exec nexus-mysql-1 mysql -u nexus -pnexus_secret nexus_core -e "SHOW TABLES LIKE 'reports%';" 2>/dev/null
-            echo ""
-            echo "=== Direct DB update test ==="
-            docker exec nexus-celery-agent-worker-1 python3 -c "
-import MySQLdb, os
-db = MySQLdb.connect(
-    host=os.environ.get('DB_HOST','mysql'),
-    port=int(os.environ.get('DB_PORT','3306')),
-    user=os.environ.get('DB_USER','nexus'),
-    passwd=os.environ.get('DB_PASSWORD','nexus_secret'),
-    db=os.environ.get('DB_NAME','nexus_core'),
-    charset='utf8mb4',
-)
-cur = db.cursor()
-cur.execute("SELECT id, status FROM reports_researchreport ORDER BY created_at DESC LIMIT 1")
-row = cur.fetchone()
-print('Latest report from worker DB:', row)
-db.close()
-"
+            echo "Celery DB_NAME:"
+            docker exec nexus-celery-agent-worker-1 env | grep "^DB_NAME"
+            echo "Celery DB_HOST:"
+            docker exec nexus-celery-agent-worker-1 env | grep "^DB_HOST"
+            echo "MySQL show databases:"
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret -e "SHOW DATABASES;" 2>/dev/null
+            echo "Report count in nexus_core:"
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core -e "SELECT count(*) FROM reports_researchreport;" 2>/dev/null
+            echo "Latest report status:"
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core -e "SELECT LOWER(HEX(id)), status, confidence_score FROM reports_researchreport ORDER BY created_at DESC LIMIT 3;" 2>/dev/null
