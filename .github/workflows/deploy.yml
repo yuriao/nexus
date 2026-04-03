@@ -10,18 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rebuild core-api and test
+      - name: Live log snapshot
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            cd /opt/nexus
-            git fetch origin main && git reset --hard origin/main
-            docker compose -f docker-compose.prod.yml build --no-cache core-api
-            docker compose -f docker-compose.prod.yml up -d --force-recreate core-api
-            sleep 5
-            echo "=== Confirm default model ==="
-            docker exec nexus-core-api-1 grep -r 'moonshot' /app/core_api/apps/reports/serializers.py 2>/dev/null || echo "not found"
-            grep 'model_name' /opt/nexus/services/core-api/core_api/apps/reports/serializers.py
+            docker logs nexus-celery-agent-worker-1 --tail 20 2>&1
