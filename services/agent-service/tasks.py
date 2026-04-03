@@ -68,6 +68,7 @@ def _get_data_points(company_id: int, limit: int = 100) -> list[dict]:
 
 def _update_report(report_id: str, status: str, final_report: dict | None = None,
                    error: str | None = None) -> None:
+    # Use a fresh DB connection for each update to avoid any stale transaction state
     db = _get_db()
     try:
         cur = db.cursor()
@@ -93,38 +94,57 @@ def _update_report(report_id: str, status: str, final_report: dict | None = None
                     report_id,
                 ),
             )
-            db.commit()  # Commit report update immediately
-            # Insert report sections (best-effort, separate commit)
-            full_text = final_report.get("full_text", "")
-            if full_text:
-                sections = _parse_report_sections(full_text, report_id)
+            db.commit()
+            logger.info("Report %s committed as completed (confidence=%.2f)",
+                        report_id, final_report.get("confidence_score") or 0)
+        elif status == "failed":
+            cur.execute(
+                "UPDATE reports_researchreport SET status = %s, error_message = %s WHERE id = %s",
+                (status, error or "Unknown error", report_id),
+            )
+            db.commit()
+        else:
+            cur.execute(
+                "UPDATE reports_researchreport SET status = %s WHERE id = %s",
+                (status, report_id),
+            )
+            db.commit()
+    except Exception as e:
+        logger.error("_update_report failed for %s: %s", report_id, e)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        db.close()
+
+    # Insert report sections in a separate connection (best-effort)
+    if status == "completed" and final_report:
+        full_text = final_report.get("full_text", "")
+        if full_text:
+            sections = _parse_report_sections(full_text, report_id)
+            db2 = _get_db()
+            try:
+                cur2 = db2.cursor()
                 for section in sections:
                     try:
-                        cur.execute(
+                        cur2.execute(
                             """INSERT INTO reports_reportsection (report_id, section_type, content, sort_order)
                                VALUES (%s, %s, %s, %s)
                                ON DUPLICATE KEY UPDATE content = VALUES(content)""",
                             (section["report_id"], section["section_type"],
                              section["content"], section["sort_order"]),
                         )
-                        db.commit()
+                        db2.commit()
                     except Exception as sec_err:
                         logger.warning("Section insert skipped: %s", sec_err)
-                        db.rollback()
-            return  # already committed above
-        elif status == "failed":
-            cur.execute(
-                "UPDATE reports_researchreport SET status = %s, error_message = %s WHERE id = %s",
-                (status, error or "Unknown error", report_id),
-            )
-        else:
-            cur.execute(
-                "UPDATE reports_researchreport SET status = %s WHERE id = %s",
-                (status, report_id),
-            )
-        db.commit()
-    finally:
-        db.close()
+                        try:
+                            db2.rollback()
+                        except Exception:
+                            pass
+            finally:
+                db2.close()
 
 
 def _parse_report_sections(full_text: str, report_id: str) -> list[dict]:
