@@ -68,6 +68,8 @@ def _get_data_points(company_id: int, limit: int = 100) -> list[dict]:
 
 def _update_report(report_id: str, status: str, final_report: dict | None = None,
                    error: str | None = None) -> None:
+    # MySQL stores UUIDs as binary without hyphens — normalize to match
+    report_id_bin = report_id.replace("-", "")
     # Use a fresh DB connection for each update to avoid any stale transaction state
     db = _get_db()
     try:
@@ -82,7 +84,7 @@ def _update_report(report_id: str, status: str, final_report: dict | None = None
                        predictions = %s,
                        confidence_score = %s,
                        completed_at = %s
-                   WHERE id = %s""",
+                   WHERE id = UNHEX(%s)""",
                 (
                     status,
                     final_report.get("summary", ""),
@@ -91,7 +93,7 @@ def _update_report(report_id: str, status: str, final_report: dict | None = None
                     json.dumps(final_report.get("predictions", [])),
                     final_report.get("confidence_score"),
                     datetime.now(timezone.utc),
-                    report_id,
+                    report_id_bin,
                 ),
             )
             db.commit()
@@ -99,14 +101,14 @@ def _update_report(report_id: str, status: str, final_report: dict | None = None
                         report_id, final_report.get("confidence_score") or 0)
         elif status == "failed":
             cur.execute(
-                "UPDATE reports_researchreport SET status = %s, error_message = %s WHERE id = %s",
-                (status, error or "Unknown error", report_id),
+                "UPDATE reports_researchreport SET status = %s, error_message = %s WHERE id = UNHEX(%s)",
+                (status, error or "Unknown error", report_id_bin),
             )
             db.commit()
         else:
             cur.execute(
-                "UPDATE reports_researchreport SET status = %s WHERE id = %s",
-                (status, report_id),
+                "UPDATE reports_researchreport SET status = %s WHERE id = UNHEX(%s)",
+                (status, report_id_bin),
             )
             db.commit()
     except Exception as e:
@@ -133,7 +135,7 @@ def _update_report(report_id: str, status: str, final_report: dict | None = None
                             """INSERT INTO reports_reportsection (report_id, section_type, content, sort_order)
                                VALUES (%s, %s, %s, %s)
                                ON DUPLICATE KEY UPDATE content = VALUES(content)""",
-                            (section["report_id"], section["section_type"],
+                            (section["report_id"].replace("-",""), section["section_type"],
                              section["content"], section["sort_order"]),
                         )
                         db2.commit()
