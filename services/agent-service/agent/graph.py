@@ -8,11 +8,9 @@ Flow:
                                           |
                                        (done)
                                           |
+                                       metrics ← NEW: runs once after pipeline completes
+                                          |
                                          END
-
-Decision at critic:
-  - If iteration < max_iterations AND critique has issues → back to researcher
-  - Otherwise → END
 """
 from __future__ import annotations
 
@@ -23,6 +21,7 @@ from langgraph.graph import END, START, StateGraph
 
 from .nodes.analyst import analyst_node
 from .nodes.critic import critic_node
+from .nodes.metrics import metrics_node
 from .nodes.researcher import researcher_node
 from .nodes.supervisor import supervisor_node
 from .nodes.writer import writer_node
@@ -33,9 +32,9 @@ logger = logging.getLogger(__name__)
 
 # ─── Conditional edge ────────────────────────────────────────────────────────
 
-def should_redo_research(state: ResearchState) -> Literal["researcher", "__end__"]:
+def should_redo_research(state: ResearchState) -> Literal["researcher", "metrics"]:
     """
-    After critic runs: decide whether to loop back to researcher or end.
+    After critic runs: decide whether to loop back to researcher or proceed to metrics.
     Loops back if:
       1. There are unresolved critique issues, AND
       2. We haven't hit max_iterations
@@ -45,17 +44,16 @@ def should_redo_research(state: ResearchState) -> Literal["researcher", "__end__
     critique = state.get("critique", [])
     confidence = state.get("confidence_score", 0.0)
 
-    # Acceptable quality threshold
     if confidence >= 0.75 and len(critique) == 0:
-        logger.info("Critic satisfied (confidence=%.2f). Ending pipeline.", confidence)
-        return END
+        logger.info("Critic satisfied (confidence=%.2f). Proceeding to metrics.", confidence)
+        return "metrics"
 
     if iteration >= max_iter:
         logger.info(
-            "Max iterations (%d) reached. Ending pipeline with confidence=%.2f.",
+            "Max iterations (%d) reached. Proceeding to metrics with confidence=%.2f.",
             max_iter, confidence,
         )
-        return END
+        return "metrics"
 
     logger.info(
         "Critic found %d issues (confidence=%.2f). Looping back. Iteration %d/%d.",
@@ -76,6 +74,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("analyst", analyst_node)
     workflow.add_node("writer", writer_node)
     workflow.add_node("critic", critic_node)
+    workflow.add_node("metrics", metrics_node)
 
     # Entry edge
     workflow.add_edge(START, "supervisor")
@@ -86,15 +85,18 @@ def build_graph() -> StateGraph:
     workflow.add_edge("analyst", "writer")
     workflow.add_edge("writer", "critic")
 
-    # Conditional exit from critic
+    # Conditional exit from critic → metrics or loop back
     workflow.add_conditional_edges(
         "critic",
         should_redo_research,
         {
             "researcher": "researcher",
-            END: END,
+            "metrics": "metrics",
         },
     )
+
+    # Metrics always goes to END
+    workflow.add_edge("metrics", END)
 
     return workflow.compile()
 
