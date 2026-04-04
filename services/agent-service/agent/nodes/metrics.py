@@ -96,14 +96,31 @@ Extract all 20 metrics. Return only the JSON array."""),
         response = llm.invoke(messages)
         raw = response.content.strip()
 
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.strip()
+        # Strip markdown code fences (handle ```json ... ``` anywhere in response)
+        if "```" in raw:
+            for part in raw.split("```")[1::2]:
+                candidate = part.strip()
+                if candidate.startswith("json"):
+                    candidate = candidate[4:].strip()
+                if candidate.lstrip().startswith("["):
+                    raw = candidate.strip()
+                    break
 
-        metrics_list = json.loads(raw)
+        # Find JSON array bounds robustly
+        start = raw.find("[")
+        end = raw.rfind("]")
+        if start != -1 and end != -1 and end > start:
+            raw = raw[start:end + 1]
+
+        try:
+            metrics_list = json.loads(raw)
+        except json.JSONDecodeError:
+            import re as _re
+            # Fix trailing commas and truncated arrays
+            raw = _re.sub(r",\s*([}\]])", r"\1", raw)
+            if not raw.rstrip().endswith("]"):
+                raw = raw.rstrip().rstrip(",") + "]"
+            metrics_list = json.loads(raw)
 
         # Validate structure
         valid_metrics = []
