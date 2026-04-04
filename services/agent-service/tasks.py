@@ -194,6 +194,68 @@ def _publish_redis_event(report_id: str, event_type: str, payload: dict) -> None
         logger.warning("Redis publish failed: %s", exc)
 
 
+
+def _save_metrics(company_id: int, report_id: str, metrics: list[dict],
+                  calculated_at: str) -> None:
+    """Persist extracted metrics to the companies_companymetric table."""
+    if not metrics:
+        return
+    from datetime import datetime, timezone
+    try:
+        calc_dt = datetime.fromisoformat(calculated_at.replace("Z", "+00:00"))
+    except Exception:
+        calc_dt = datetime.now(timezone.utc)
+
+    db = _get_db()
+    try:
+        cur = db.cursor()
+        for m in metrics:
+            if m.get("confidence") == "unavailable":
+                continue
+            val = m.get("value")
+            if val is None:
+                continue
+            # Generate a UUID for the row
+            import uuid as _uuid
+            row_id = _uuid.uuid4().hex
+            cur.execute(
+                """INSERT INTO companies_companymetric
+                   (id, company_id, report_id, metric_code, metric_name, unit,
+                    value, confidence, source, note, calculated_at, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                   ON DUPLICATE KEY UPDATE
+                     value = VALUES(value),
+                     confidence = VALUES(confidence),
+                     source = VALUES(source),
+                     note = VALUES(note)""",
+                (
+                    row_id,
+                    company_id,
+                    report_id.replace("-", ""),
+                    m.get("code", ""),
+                    m.get("name", "")[:200],
+                    m.get("unit", "")[:50],
+                    float(val),
+                    m.get("confidence", "low")[:20],
+                    (m.get("source") or "")[:500],
+                    (m.get("note") or "")[:500],
+                    calc_dt,
+                ),
+            )
+        db.commit()
+        logger.info("Saved %d metrics for company=%s report=%s",
+                    len([m for m in metrics if m.get("value") is not None]),
+                    company_id, report_id)
+    except Exception as e:
+        logger.error("Failed to save metrics: %s", e)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
 @app.task(bind=True, max_retries=1, default_retry_delay=30)
 def run_agent_analysis(
     self,
@@ -232,12 +294,15 @@ def run_agent_analysis(
         initial_state = {
             "company_id": str(company_id),
             "company_name": company["name"],
+            "report_id": report_id,
             "raw_data_points": data_points,
             "research_notes": [],
             "analysis": {},
             "draft_report": "",
             "critique": [],
             "final_report": {},
+            "metrics": [],
+            "metrics_calculated_at": "",
             "iteration": 0,
             "max_iterations": max_iterations,
             "confidence_score": 0.0,
@@ -303,7 +368,14 @@ def run_agent_analysis(
             report_id, final_report.get("confidence_score", 0),
         )
 
-        # ── 5. Publish completion ─────────────────────────────────────────
+        # ── 5a. Save metrics ──────────────────────────────────────────────
+        metrics = final_state.get("metrics", [])
+        metrics_at = final_state.get("metrics_calculated_at", "")
+        if metrics:
+            _save_metrics(company_id, report_id, metrics, metrics_at)
+            logger.info("Metrics saved: %d entries", len(metrics))
+
+        # ── 5b. Publish completion ────────────────────────────────────────
         _publish_redis_event(report_id, "report.completed", {
             "confidence_score": final_report.get("confidence_score"),
             "iterations": final_report.get("iterations"),
