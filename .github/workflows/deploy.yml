@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy metrics feature
+      - name: Deploy fix - wire scraper into report trigger
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -20,7 +20,7 @@ jobs:
             cd /opt/nexus
             git stash && git fetch origin main && git reset --hard origin/main
 
-            # Create the metrics table if it doesn't exist
+            # Ensure metrics table exists
             docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core 2>/dev/null << 'SQL'
             CREATE TABLE IF NOT EXISTS companies_companymetric (
               id VARCHAR(32) NOT NULL PRIMARY KEY,
@@ -40,14 +40,11 @@ jobs:
             );
             SQL
 
-            echo "=== Metrics table status ==="
-            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core -e "SHOW TABLES LIKE 'companies_companymetric';" 2>/dev/null
+            # Rebuild core-api (report trigger fix) and agent (metrics node fix)
+            docker compose -f docker-compose.prod.yml build --no-cache core-api celery-agent-worker
+            docker compose -f docker-compose.prod.yml up -d --force-recreate core-api celery-agent-worker
 
-            # Rebuild both services
-            docker compose -f docker-compose.prod.yml build --no-cache celery-agent-worker core-api
-            docker compose -f docker-compose.prod.yml up -d --force-recreate celery-agent-worker core-api
             sleep 5
-
-            echo "=== Services running ==="
-            docker ps | grep -E "celery|core-api"
+            echo "=== Running containers ==="
+            docker ps --format "table {{.Names}}\t{{.Status}}" | grep nexus
             echo "Deploy complete"
