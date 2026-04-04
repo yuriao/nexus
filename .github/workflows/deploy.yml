@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rebuild core-api for WS fix
+      - name: Rebuild agent worker
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -19,9 +19,6 @@ jobs:
           script: |
             cd /opt/nexus
             git stash && git fetch origin main && git reset --hard origin/main
-            docker compose -f docker-compose.prod.yml build --no-cache core-api
-            docker compose -f docker-compose.prod.yml up -d --force-recreate core-api
-            sleep 5
-            echo "=== core-api status ==="
-            docker ps | grep core-api
-            echo "Done"
+            docker compose -f docker-compose.prod.yml build --no-cache celery-agent-worker
+            docker compose -f docker-compose.prod.yml up -d --force-recreate celery-agent-worker
+            echo "Agent worker rebuilt with new report standard"
