@@ -125,8 +125,9 @@ def _update_report(report_id: str, status: str, final_report: dict | None = None
     if status == "completed" and final_report:
         full_text = final_report.get("full_text", "")
         if full_text:
-            sections = _parse_report_sections(full_text, report_id)
+            sections = _parse_report_sections(full_text, report_id.replace('-', ''))
             db2 = _get_db()
+            rid2 = report_id.replace("-", "")
             try:
                 cur2 = db2.cursor()
                 for section in sections:
@@ -135,7 +136,7 @@ def _update_report(report_id: str, status: str, final_report: dict | None = None
                             """INSERT INTO reports_reportsection (report_id, section_type, content, sort_order)
                                VALUES (%s, %s, %s, %s)
                                ON DUPLICATE KEY UPDATE content = VALUES(content)""",
-                            (section["report_id"], section["section_type"],
+                            (rid2, section["section_type"],
                              section["content"], section["sort_order"]),
                         )
                         db2.commit()
