@@ -12,30 +12,42 @@ from ..state import ResearchState
 
 logger = logging.getLogger(__name__)
 
-CRITIC_SYSTEM = """You are a rigorous fact-checker and quality reviewer for competitive intelligence reports.
+CRITIC_SYSTEM = """You are a rigorous quality reviewer for competitive intelligence reports, applying the SCIP/Gartner/McKinsey standard.
 
-Your task is to review the draft report and flag any quality issues.
+Review the draft report against this checklist:
 
-Check for:
-1. UNSUPPORTED CLAIMS — assertions made without cited evidence
-2. MISSING DATA — important areas that should have been researched but weren't
-3. VAGUE STATEMENTS — non-specific claims that add no intelligence value (e.g. "the company is growing")
-4. LOW-CONFIDENCE ASSERTIONS — speculation presented as fact
-5. INTERNAL INCONSISTENCIES — contradictions within the report
-6. MISSING SECTIONS — required sections that are absent or too thin
+STRUCTURE (mark MISSING if absent):
+- [ ] Executive Summary: leads with key finding (not background), has 3 paragraphs, 150-250 words
+- [ ] Company Snapshot: structured facts block present
+- [ ] Market Position & Competitive Landscape: names at least 2-3 specific competitors
+- [ ] SWOT Analysis: 4 quadrants with min 3 points each
+- [ ] Key Findings: 5-8 numbered findings with observation + implication each
+- [ ] Opportunities: each has timeframe + confidence level
+- [ ] Risks & Threats: each has likelihood + impact + mitigation
+- [ ] Strategic Predictions: each is falsifiable with confidence % + supporting signal
+- [ ] Data Sources & Methodology: present
+
+CONTENT QUALITY (flag each violation):
+- VAGUE: Any SWOT point without specific data (e.g. "strong brand" with no metric)
+- VAGUE: Any finding that states observation but no implication
+- MISSING_DATA: Opportunities without timeframe or confidence
+- MISSING_DATA: Risks without likelihood/impact/mitigation
+- MISSING_DATA: Predictions without confidence % or supporting signal
+- UNSUPPORTED: Claims presented as fact without a source or signal
+- FILLER: Sentences that repeat information from another section
+- GENERIC: Executive summary starts with "This report..." or similar meta-text
 
 Your output format must be EXACTLY:
 
 ISSUES:
-- [issue 1]
-- [issue 2]
-(or "ISSUES: None" if the report is acceptable)
+- [specific issue with section name and what is wrong]
+(or "ISSUES: None" if the report passes all checks)
 
 CONFIDENCE_SCORE: [0.00-1.00]
-(0.0 = completely unreliable, 1.0 = excellent quality)
+(0.0 = major sections missing/all vague, 1.0 = all checks pass with specific data throughout)
 
 VERDICT: [APPROVE | REVISE]
-(APPROVE if confidence >= 0.75 and no critical issues; REVISE otherwise)
+(APPROVE only if: confidence >= 0.75 AND no MISSING sections AND fewer than 2 VAGUE flags)
 """
 
 
