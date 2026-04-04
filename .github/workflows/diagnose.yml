@@ -1,0 +1,32 @@
+name: Diagnose Scraper
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check scraper logs
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/nexus
+            echo "=== SCRAPER WORKER LOGS (last 80 lines) ==="
+            docker logs nexus-celery-scraper-worker-1 --tail 80 2>&1 || \
+            docker logs $(docker ps --format '{{.Names}}' | grep scraper) --tail 80 2>&1
+
+            echo ""
+            echo "=== AGENT WORKER LOGS (last 30 lines) ==="
+            docker logs $(docker ps --format '{{.Names}}' | grep agent) --tail 30 2>&1
+
+            echo ""
+            echo "=== DATAPOINT COUNT ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
+              -e "SELECT company_id, source_type, COUNT(*) as cnt FROM companies_datapoint GROUP BY company_id, source_type;" 2>/dev/null
+
+            echo ""
+            echo "=== CONTAINER STATUS ==="
+            docker ps --format "table {{.Names}}\t{{.Status}}" | grep nexus
