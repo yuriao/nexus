@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy fix - wire scraper into report trigger
+      - name: Deploy all fixes
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -40,11 +40,20 @@ jobs:
             );
             SQL
 
-            # Rebuild core-api (report trigger fix) and agent (metrics node fix)
-            docker compose -f docker-compose.prod.yml build --no-cache core-api celery-agent-worker
-            docker compose -f docker-compose.prod.yml up -d --force-recreate core-api celery-agent-worker
+            # Rebuild all affected services
+            docker compose -f docker-compose.prod.yml build --no-cache \
+              core-api celery-agent-worker celery-scraper-worker
 
-            sleep 5
+            # Bring up everything including scraper worker (was missing!)
+            docker compose -f docker-compose.prod.yml up -d --force-recreate \
+              core-api celery-agent-worker celery-scraper-worker
+
+            sleep 8
             echo "=== Running containers ==="
             docker ps --format "table {{.Names}}\t{{.Status}}" | grep nexus
+
+            echo "=== Scraper worker queue check ==="
+            docker exec $(docker ps --format '{{.Names}}' | grep scraper-worker) \
+              celery -A celery_app inspect active_queues 2>/dev/null | grep -A2 "scraper" || echo "worker starting..."
+
             echo "Deploy complete"
