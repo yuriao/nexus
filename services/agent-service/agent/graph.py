@@ -32,9 +32,9 @@ logger = logging.getLogger(__name__)
 
 # ─── Conditional edge ────────────────────────────────────────────────────────
 
-def should_redo_research(state: ResearchState) -> Literal["researcher", "metrics"]:
+def should_redo_research(state: ResearchState) -> Literal["researcher", "metrics_extractor"]:
     """
-    After critic runs: decide whether to loop back to researcher or proceed to metrics.
+    After critic runs: decide whether to loop back to researcher or proceed to metrics_extractor.
     Loops back if:
       1. There are unresolved critique issues, AND
       2. We haven't hit max_iterations
@@ -45,15 +45,15 @@ def should_redo_research(state: ResearchState) -> Literal["researcher", "metrics
     confidence = state.get("confidence_score", 0.0)
 
     if confidence >= 0.75 and len(critique) == 0:
-        logger.info("Critic satisfied (confidence=%.2f). Proceeding to metrics.", confidence)
-        return "metrics"
+        logger.info("Critic satisfied (confidence=%.2f). Proceeding to metrics_extractor.", confidence)
+        return "metrics_extractor"
 
     if iteration >= max_iter:
         logger.info(
-            "Max iterations (%d) reached. Proceeding to metrics with confidence=%.2f.",
+            "Max iterations (%d) reached. Proceeding to metrics_extractor with confidence=%.2f.",
             max_iter, confidence,
         )
-        return "metrics"
+        return "metrics_extractor"
 
     logger.info(
         "Critic found %d issues (confidence=%.2f). Looping back. Iteration %d/%d.",
@@ -74,7 +74,7 @@ def build_graph() -> StateGraph:
     workflow.add_node("analyst", analyst_node)
     workflow.add_node("writer", writer_node)
     workflow.add_node("critic", critic_node)
-    workflow.add_node("metrics", metrics_node)
+    workflow.add_node("metrics_extractor", metrics_node)
 
     # Entry edge
     workflow.add_edge(START, "supervisor")
@@ -91,12 +91,12 @@ def build_graph() -> StateGraph:
         should_redo_research,
         {
             "researcher": "researcher",
-            "metrics": "metrics",
+            "metrics_extractor": "metrics_extractor",
         },
     )
 
     # Metrics always goes to END
-    workflow.add_edge("metrics", END)
+    workflow.add_edge("metrics_extractor", END)
 
     return workflow.compile()
 
