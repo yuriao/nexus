@@ -11,7 +11,7 @@ from .serializers import ResearchReportSerializer, TriggerReportSerializer
 
 
 class TriggerReportView(APIView):
-    """POST /api/reports/trigger/ — create a report record and enqueue the agent task."""
+    """POST /api/reports/trigger/ — scrape fresh data then run the agent analysis."""
 
     permission_classes = [permissions.IsAuthenticated]
 
@@ -36,10 +36,19 @@ class TriggerReportView(APIView):
             requested_by_user_id=request.user.id,
         )
 
-        # Dispatch Celery task (lazy import avoids circular deps)
+        # Dispatch: scraper first, then agent analysis as a chain
+        # scraper-service task → agent-service task (runs after scrape completes)
         try:
             from celery import current_app
-            current_app.send_task(
+            from celery import chain
+
+            scrape_task = current_app.signature(
+                "tasks.run_company_scrape",
+                kwargs={"company_id": company.id},
+                queue="scraper",
+                immutable=True,
+            )
+            agent_task = current_app.signature(
                 "tasks.run_agent_analysis",
                 kwargs={
                     "company_id": company.id,
@@ -48,7 +57,10 @@ class TriggerReportView(APIView):
                     "model_name": ser.validated_data["model_name"],
                 },
                 queue="agent",
+                immutable=True,
             )
+            (scrape_task | agent_task).delay()
+
         except Exception as exc:
             report.mark_failed(f"Failed to enqueue task: {exc}")
             return Response(
