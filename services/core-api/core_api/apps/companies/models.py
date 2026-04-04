@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 
 
@@ -97,3 +98,44 @@ class Alert(models.Model):
 
     def __str__(self) -> str:
         return f"Alert for {self.company.name} → {self.user_id}"
+
+
+
+class CompanyMetric(models.Model):
+    CONFIDENCE_HIGH = "high"
+    CONFIDENCE_MEDIUM = "medium"
+    CONFIDENCE_LOW = "low"
+    CONFIDENCE_UNAVAILABLE = "unavailable"
+    CONFIDENCE_CHOICES = [
+        (CONFIDENCE_HIGH, "High"),
+        (CONFIDENCE_MEDIUM, "Medium"),
+        (CONFIDENCE_LOW, "Low"),
+        (CONFIDENCE_UNAVAILABLE, "Unavailable"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="metrics")
+    report_id = models.CharField(max_length=36, db_index=True, blank=True)
+    metric_code = models.CharField(max_length=3, db_index=True)
+    metric_name = models.CharField(max_length=200)
+    unit = models.CharField(max_length=50)
+    value = models.DecimalField(max_digits=18, decimal_places=4, null=True, blank=True)
+    confidence = models.CharField(max_length=20, choices=CONFIDENCE_CHOICES, default=CONFIDENCE_LOW)
+    source = models.TextField(blank=True)
+    note = models.TextField(blank=True)
+    calculated_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "companies_companymetric"
+        ordering = ["-calculated_at", "metric_code"]
+        indexes = [
+            models.Index(fields=["company", "metric_code", "calculated_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.company.name} — {self.metric_code}: {self.value} {self.unit}"
+
+    @property
+    def is_available(self):
+        return self.value is not None and self.confidence != self.CONFIDENCE_UNAVAILABLE
