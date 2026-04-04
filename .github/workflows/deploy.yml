@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rebuild agent worker
+      - name: Deploy metrics feature
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -19,6 +19,35 @@ jobs:
           script: |
             cd /opt/nexus
             git stash && git fetch origin main && git reset --hard origin/main
-            docker compose -f docker-compose.prod.yml build --no-cache celery-agent-worker
-            docker compose -f docker-compose.prod.yml up -d --force-recreate celery-agent-worker
-            echo "Agent worker rebuilt with new report standard"
+
+            # Create the metrics table if it doesn't exist
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core 2>/dev/null << 'SQL'
+            CREATE TABLE IF NOT EXISTS companies_companymetric (
+              id VARCHAR(32) NOT NULL PRIMARY KEY,
+              company_id INT NOT NULL,
+              report_id VARCHAR(36) NOT NULL DEFAULT '',
+              metric_code VARCHAR(3) NOT NULL,
+              metric_name VARCHAR(200) NOT NULL,
+              unit VARCHAR(50) NOT NULL,
+              value DECIMAL(18,4) NULL,
+              confidence VARCHAR(20) NOT NULL DEFAULT 'low',
+              source TEXT NOT NULL DEFAULT '',
+              note TEXT NOT NULL DEFAULT '',
+              calculated_at DATETIME(6) NOT NULL,
+              created_at DATETIME(6) NOT NULL,
+              INDEX idx_company_metric_calc (company_id, metric_code, calculated_at),
+              CONSTRAINT fk_metric_company FOREIGN KEY (company_id) REFERENCES companies_company(id) ON DELETE CASCADE
+            );
+            SQL
+
+            echo "=== Metrics table status ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core -e "SHOW TABLES LIKE 'companies_companymetric';" 2>/dev/null
+
+            # Rebuild both services
+            docker compose -f docker-compose.prod.yml build --no-cache celery-agent-worker core-api
+            docker compose -f docker-compose.prod.yml up -d --force-recreate celery-agent-worker core-api
+            sleep 5
+
+            echo "=== Services running ==="
+            docker ps | grep -E "celery|core-api"
+            echo "Deploy complete"
