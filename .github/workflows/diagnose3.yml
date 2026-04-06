@@ -1,0 +1,37 @@
+name: Diagnose Scraper 3
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check scraper crash
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/nexus
+
+            echo "=== SCRAPER CONTAINER (including stopped) ==="
+            docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Command}}" | grep -i scraper
+
+            echo ""
+            echo "=== TRY START SCRAPER WORKER ==="
+            docker compose -f docker-compose.prod.yml up -d celery-scraper-worker 2>&1
+            sleep 5
+
+            echo ""
+            echo "=== SCRAPER STATUS AFTER START ==="
+            docker ps -a --format "table {{.Names}}\t{{.Status}}" | grep scraper
+
+            echo ""
+            echo "=== SCRAPER LOGS (last 50 lines) ==="
+            docker logs nexus-celery-scraper-worker-1 --tail 50 2>&1 || \
+            docker compose -f docker-compose.prod.yml logs celery-scraper-worker --tail 50 2>&1
+
+            echo ""
+            echo "=== SCRAPER DOCKERFILE CMD ==="
+            docker inspect nexus-celery-scraper-worker-1 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['Config']['Cmd'])" 2>/dev/null || echo "container not found"
