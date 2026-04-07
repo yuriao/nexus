@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy all fixes
+      - name: Deploy auto-scheduling + scraper fix
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -36,24 +36,31 @@ jobs:
               calculated_at DATETIME(6) NOT NULL,
               created_at DATETIME(6) NOT NULL,
               INDEX idx_company_metric_calc (company_id, metric_code, calculated_at),
-              CONSTRAINT fk_metric_company FOREIGN KEY (company_id) REFERENCES companies_company(id) ON DELETE CASCADE
+              CONSTRAINT fk_metric_company FOREIGN KEY (company_id)
+                REFERENCES companies_company(id) ON DELETE CASCADE
             );
             SQL
 
-            # Rebuild all affected services
+            # Build all services (scraper Dockerfile is now fixed)
             docker compose -f docker-compose.prod.yml build --no-cache \
-              core-api celery-agent-worker celery-scraper-worker
+              celery-scraper-worker celery-agent-worker \
+              celery-beat celery-beat-worker core-api
 
-            # Bring up everything including scraper worker (was missing!)
+            # Start everything
             docker compose -f docker-compose.prod.yml up -d --force-recreate \
-              core-api celery-agent-worker celery-scraper-worker
+              celery-scraper-worker celery-agent-worker \
+              celery-beat celery-beat-worker core-api
 
-            sleep 8
+            sleep 10
+
             echo "=== Running containers ==="
             docker ps --format "table {{.Names}}\t{{.Status}}" | grep nexus
 
-            echo "=== Scraper worker queue check ==="
-            docker exec $(docker ps --format '{{.Names}}' | grep scraper-worker) \
-              celery -A celery_app inspect active_queues 2>/dev/null | grep -A2 "scraper" || echo "worker starting..."
+            echo "=== Beat scheduler log ==="
+            docker logs nexus-celery-beat-1 --tail 15 2>&1 || \
+            docker logs $(docker ps --format '{{.Names}}' | grep celery-beat$) --tail 15 2>&1
+
+            echo "=== Scraper worker status ==="
+            docker ps --format "{{.Names}}\t{{.Status}}" | grep scraper
 
             echo "Deploy complete"
