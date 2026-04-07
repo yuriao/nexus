@@ -1,0 +1,35 @@
+name: Fix Nginx Upstream
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove all stale containers + restart nginx
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/nexus
+
+            echo "=== Remove ALL stale Created containers ==="
+            docker ps -a --filter "status=created" --format "{{.ID}}" | xargs -r docker rm
+            docker ps -a --filter "name=nexus" --filter "status=created" --format "{{.ID}}" | xargs -r docker rm
+
+            echo "=== Restart nginx to pick up new core-api IP ==="
+            docker compose -f docker-compose.prod.yml restart nginx
+            sleep 5
+
+            echo "=== Test connectivity ==="
+            docker exec nexus-nginx-1 wget -qO- --header="Authorization: Bearer test" http://core-api:8000/api/companies/ 2>&1 | head -3 || echo "auth required (expected)"
+            curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/companies/ || echo "check done"
+
+            echo ""
+            echo "=== Container IPs ==="
+            docker inspect nexus-core-api-1 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); nets=d[0]['NetworkSettings']['Networks']; [print(k, v['IPAddress']) for k,v in nets.items()]"
+
+            echo ""
+            echo "=== All containers ==="
+            docker ps --format "table {{.Names}}\t{{.Status}}" | grep nexus
