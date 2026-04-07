@@ -139,6 +139,37 @@ services:
       redis:  { condition: service_healthy }
     networks: [nexus-net]
 
+  celery-beat:
+    build:
+      context: ./services/agent-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      DB_NAME: ${DB_NAME:-nexus_core}
+    command: celery -A celery_app beat -l info --scheduler celery.beat:PersistentScheduler
+    volumes:
+      - beat_data:/app/celerybeat-schedule
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis:  { condition: service_healthy }
+    networks: [nexus-net]
+
+  celery-beat-worker:
+    build:
+      context: ./services/agent-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      DB_NAME: ${DB_NAME:-nexus_core}
+    command: celery -A celery_app worker -Q beat -c 2 -l info --without-gossip
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis:  { condition: service_healthy }
+    networks: [nexus-net]
+
+
   nginx:
     image: nginx:alpine
     restart: unless-stopped
@@ -152,6 +183,7 @@ services:
 volumes:
   mysql_data:
   redis_data:
+  beat_data:
 
 networks:
   nexus-net:
