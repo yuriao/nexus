@@ -1,0 +1,32 @@
+name: Tunnel Restart
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/tunnel_restart.yml']
+jobs:
+  restart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restart cloudflare tunnel
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "=== Find cloudflared ==="
+            which cloudflared || find /usr/local/bin /usr/bin /home -name cloudflared 2>/dev/null | head -3
+            pgrep -fa cloudflared | head -5
+
+            echo "=== Check tunnel config ==="
+            ls ~/.cloudflared/ 2>/dev/null || ls /etc/cloudflared/ 2>/dev/null || ls /root/.cloudflared/ 2>/dev/null
+
+            echo "=== Try restart as service ==="
+            systemctl restart cloudflared 2>/dev/null && systemctl status cloudflared | grep Active || \
+            echo "not a systemd service"
+
+            echo "=== Check docker cloudflare container ==="
+            docker ps -a | grep -i cloud
+
+            echo "=== Tunnel running? ==="
+            pgrep -fa cloudflared | head -5 || echo "still not running"
