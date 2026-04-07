@@ -1,0 +1,42 @@
+name: Check External
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check ports and tunnel
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "=== Nginx port bindings ==="
+            docker port nexus-nginx-1
+
+            echo ""
+            echo "=== Host listening ports ==="
+            ss -tlnp | grep -E "8080|80|443|cloudflare|tunnel"
+
+            echo ""
+            echo "=== Cloudflare tunnel status ==="
+            systemctl status cloudflared 2>/dev/null | head -10 || \
+            docker ps --format "{{.Names}}\t{{.Status}}" | grep -i "cloudflare\|tunnel" || \
+            pgrep -a cloudflared || echo "cloudflared not found as systemd service"
+
+            echo ""
+            echo "=== Nginx container port map ==="
+            docker inspect nexus-nginx-1 2>/dev/null | python3 -c "
+import json,sys
+d=json.load(sys.stdin)[0]
+ports = d['NetworkSettings']['Ports']
+for k,v in ports.items():
+    print(k, '->', v)
+"
+            echo ""
+            echo "=== Internal curl test ==="
+            curl -s -o /dev/null -w "login: %{http_code}\n" -X POST \
+              http://localhost:8080/api/auth/login/ \
+              -H "Content-Type: application/json" \
+              -d '{"username":"x","password":"x"}'
