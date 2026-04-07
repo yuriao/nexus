@@ -147,9 +147,9 @@ services:
     environment:
       <<: *common-env
       DB_NAME: ${DB_NAME:-nexus_core}
-    command: celery -A celery_app beat -l info --scheduler celery.beat:PersistentScheduler
+    command: celery -A celery_app beat -l info -s /app/beat-data/celerybeat-schedule --scheduler celery.beat:PersistentScheduler
     volumes:
-      - beat_data:/app/celerybeat-schedule
+      - beat_data:/app/beat-data
     depends_on:
       mysql: { condition: service_healthy }
       redis:  { condition: service_healthy }
