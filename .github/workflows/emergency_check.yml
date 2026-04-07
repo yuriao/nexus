@@ -1,0 +1,25 @@
+name: Emergency Check
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check core-api crash
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "=== CONTAINERS ==="
+            docker ps -a --format "table {{.Names}}\t{{.Status}}" | grep nexus
+
+            echo ""
+            echo "=== CORE-API LOGS ==="
+            docker logs nexus-core-api-1 --tail 40 2>&1
+
+            echo ""
+            echo "=== DB COMPANY COUNT ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
+              -e "SELECT COUNT(*) as companies FROM companies_company; SELECT COUNT(*) as reports FROM reports_researchreport;" 2>/dev/null
