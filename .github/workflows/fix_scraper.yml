@@ -1,0 +1,30 @@
+name: Fix Scraper Worker
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Force rebuild + restart scraper
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/nexus
+            git pull origin main
+
+            echo "=== Current scraper celery_app.py ==="
+            cat services/scraper-service/celery_app.py
+
+            docker compose -f docker-compose.prod.yml stop celery-scraper-worker
+            docker rm nexus-celery-scraper-worker-1 2>/dev/null || true
+            docker rmi nexus-celery-scraper-worker 2>/dev/null || true
+            docker compose -f docker-compose.prod.yml build --no-cache celery-scraper-worker
+            docker compose -f docker-compose.prod.yml up -d celery-scraper-worker
+            sleep 10
+
+            echo "=== Scraper status ==="
+            docker ps --format "{{.Names}}\t{{.Status}}" | grep scraper
+            docker logs nexus-celery-scraper-worker-1 --tail 20 2>&1
