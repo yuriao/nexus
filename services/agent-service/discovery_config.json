@@ -1,0 +1,36 @@
+{
+  "_comment": "Nexus company discovery seed config. Edit this file to control what companies get auto-tracked.",
+  "discovery": {
+    "enabled": true,
+    "max_new_per_run": 10,
+    "min_confidence": 0.6,
+    "sources": ["crunchbase_search", "news_mentions", "g2_categories"]
+  },
+  "sectors": [
+    "AI/ML",
+    "SaaS",
+    "Fintech",
+    "Developer Tools",
+    "Cybersecurity"
+  ],
+  "seed_queries": [
+    "top AI startup 2025",
+    "best developer tools SaaS 2025",
+    "fastest growing fintech startups",
+    "enterprise cybersecurity companies",
+    "generative AI companies Series B"
+  ],
+  "competitor_tracking": {
+    "enabled": true,
+    "note": "Auto-add competitors of companies already in your watchlist"
+  },
+  "exclude_domains": [
+    "google.com",
+    "microsoft.com",
+    "amazon.com",
+    "apple.com",
+    "meta.com"
+  ],
+  "require_fields": ["domain", "name"],
+  "crawl_frequency_hours": 24
+}
