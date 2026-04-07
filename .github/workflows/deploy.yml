@@ -63,4 +63,7 @@ jobs:
             echo "=== Scraper worker status ==="
             docker ps --format "{{.Names}}\t{{.Status}}" | grep scraper
 
+            # Always restart nginx last so it resolves fresh container IPs
+            docker compose -f docker-compose.prod.yml restart nginx
+            sleep 3
             echo "Deploy complete"
