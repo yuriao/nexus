@@ -1,0 +1,32 @@
+name: Check HTTPS
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/check_https.yml']
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check HTTPS setup
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "=== Listening ports on host ==="
+            ss -tlnp | grep -E "80|443|8080"
+
+            echo ""
+            echo "=== Nginx config (SSL/listen) ==="
+            cat /opt/nexus/infra/nginx/nginx.prod.conf | grep -E "listen|ssl|server_name|proxy_pass|return" | head -30
+
+            echo ""
+            echo "=== Nginx container logs (last 10) ==="
+            docker logs nexus-nginx-1 --tail 10 2>&1 | grep -v "^$"
+
+            echo ""
+            echo "=== Test direct ==="
+            curl -sk -o /dev/null -w "https 443: %{http_code}\n" https://localhost/api/auth/login/ 2>/dev/null || echo "443 not available"
+            curl -s -o /dev/null -w "http 80: %{http_code}\n" http://localhost/api/auth/login/ 2>/dev/null || echo "80 not available"
+            curl -s -o /dev/null -w "http 8080: %{http_code}\n" http://localhost:8080/api/auth/login/ 2>/dev/null
