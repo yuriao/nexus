@@ -10,7 +10,7 @@ app = Celery(
     "agent",
     broker=os.environ.get("CELERY_BROKER_URL", "redis://redis:6379/1"),
     backend=os.environ.get("CELERY_RESULT_BACKEND", "redis://redis:6379/2"),
-    include=["tasks", "beat_tasks"],
+    include=["tasks", "beat_tasks", "discovery_tasks"],
 )
 
 app.conf.update(
@@ -24,16 +24,25 @@ app.conf.update(
         "tasks.schedule_due_companies": {"queue": "beat"},
         "tasks.enrich_all_companies": {"queue": "beat"},
         "tasks.enrich_company": {"queue": "beat"},
+        "tasks.discover_companies": {"queue": "beat"},
     },
     beat_schedule={
+        # Every hour: scrape + report for due companies
         "hourly-scrape-and-report": {
             "task": "tasks.schedule_due_companies",
             "schedule": crontab(minute="0"),
             "options": {"queue": "beat"},
         },
+        # Every 6 hours: fill in missing company metadata
         "enrich-companies": {
             "task": "tasks.enrich_all_companies",
             "schedule": crontab(minute="30", hour="*/6"),
+            "options": {"queue": "beat"},
+        },
+        # Daily at 2am UTC: discover and add new companies
+        "discover-companies": {
+            "task": "tasks.discover_companies",
+            "schedule": crontab(minute="0", hour="2"),
             "options": {"queue": "beat"},
         },
     },
