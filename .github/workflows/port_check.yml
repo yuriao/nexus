@@ -1,0 +1,32 @@
+name: Port Check
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/port_check.yml']
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check ports and tunnel
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "=== Nginx port bindings ==="
+            docker port nexus-nginx-1 2>/dev/null
+
+            echo "=== Host listening ==="
+            ss -tlnp | grep -E "8080|443|80"
+
+            echo "=== Cloudflare tunnel ==="
+            systemctl status cloudflared 2>/dev/null | grep -E "Active|Main" | head -3 || \
+            docker ps --format "{{.Names}}\t{{.Status}}" | grep -i cloud || \
+            pgrep -fa cloudflared | head -3 || echo "not found as service"
+
+            echo "=== Internal test ==="
+            curl -s -o /dev/null -w "login: %{http_code}\n" -X POST \
+              http://localhost:8080/api/auth/login/ \
+              -H "Content-Type: application/json" -d '{"username":"x","password":"x"}'
