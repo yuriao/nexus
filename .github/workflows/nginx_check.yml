@@ -1,0 +1,36 @@
+name: Nginx Check
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check nginx + restart if needed
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "=== NGINX LOGS ==="
+            docker logs nexus-nginx-1 --tail 30 2>&1
+
+            echo ""
+            echo "=== TEST INTERNAL ROUTING ==="
+            docker exec nexus-nginx-1 wget -qO- http://core-api:8000/api/companies/ 2>&1 | head -5 || echo "direct call failed"
+
+            echo ""
+            echo "=== NGINX CONFIG ==="
+            docker exec nexus-nginx-1 cat /etc/nginx/nginx.conf | grep -A5 "location /api"
+
+            echo ""
+            echo "=== STALE CONTAINER CHECK ==="
+            docker ps -a --format "{{.Names}}\t{{.Status}}" | grep "6cda20246c1d\|Created"
+
+            echo ""
+            echo "=== FORCE REMOVE STALE + RESTART ==="
+            docker rm 6cda20246c1d_nexus-core-api-1 2>/dev/null || true
+            cd /opt/nexus
+            docker compose -f docker-compose.prod.yml restart nginx
+            sleep 5
+            docker logs nexus-nginx-1 --tail 10 2>&1
