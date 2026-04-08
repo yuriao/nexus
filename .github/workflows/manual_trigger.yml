@@ -1,0 +1,48 @@
+name: Manual Trigger
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/manual_trigger.yml']
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Manually fire schedule_due_companies + watch
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "=== Fire schedule_due_companies via beat worker ==="
+            docker exec nexus-celery-beat-worker-1 celery -A celery_app call \
+              tasks.schedule_due_companies -Q beat 2>&1
+
+            echo ""
+            echo "=== Also trigger scrapes directly ==="
+            docker exec nexus-celery-beat-worker-1 python3 -c "
+import sys; sys.path.insert(0, '/app')
+from celery_app import app
+import MySQLdb
+db = MySQLdb.connect(host='mysql',user='nexus',passwd='nexus_secret',db='nexus_core')
+cur = db.cursor()
+cur.execute('SELECT id, name FROM companies_company')
+rows = cur.fetchall()
+db.close()
+for cid, name in rows:
+    r = app.send_task('tasks.run_company_scrape', kwargs={'company_id': cid}, queue='scraper')
+    print(f'Dispatched scrape: {name} id={cid} task={r.id}')
+"
+
+            echo ""
+            echo "=== Wait 60s for scraping ==="
+            sleep 60
+
+            echo ""
+            echo "=== Scraper worker activity ==="
+            docker logs nexus-celery-scraper-worker-1 --since 2m 2>&1 | tail -40
+
+            echo ""
+            echo "=== DataPoints now ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
+              -e "SELECT company_id, source_type, COUNT(*) cnt FROM companies_datapoint GROUP BY company_id, source_type;" 2>/dev/null
