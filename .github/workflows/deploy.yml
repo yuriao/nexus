@@ -42,64 +42,58 @@ jobs:
             SQL
 
             DOMAIN="8-218-95-2.sslip.io"
-            CERT_PATH="/var/lib/docker/volumes/nexus_certbot_certs/_data/live/${DOMAIN}/fullchain.pem"
-
-            # Create volumes
             docker volume create nexus_certbot_www 2>/dev/null || true
             docker volume create nexus_certbot_certs 2>/dev/null || true
-            CERTBOT_WWW=$(docker volume inspect nexus_certbot_www --format '{{.Mountpoint}}')
             CERTBOT_CERTS=$(docker volume inspect nexus_certbot_certs --format '{{.Mountpoint}}')
-
-            if [ ! -f "$CERT_PATH" ]; then
-              echo "=== Issuing Let's Encrypt cert ==="
-
-              # Ensure port 80 is free
-              docker stop certbot-nginx 2>/dev/null; docker rm certbot-nginx 2>/dev/null || true
-
-              # Temp nginx for ACME challenge on port 80
-              docker run -d --name certbot-nginx \
-                -p 80:80 \
-                -v ${CERTBOT_WWW}:/var/www/certbot \
-                nginx:alpine sh -c "
-                  echo 'server { listen 80; location /.well-known/acme-challenge/ { root /var/www/certbot; } location / { return 200 ok; } }' \
-                    > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
-              sleep 3
-
-              docker run --rm \
-                -v nexus_certbot_www:/var/www/certbot \
-                -v nexus_certbot_certs:/etc/letsencrypt \
-                certbot/certbot certonly \
-                  --webroot \
-                  --webroot-path=/var/www/certbot \
-                  --email ${{ secrets.CERTBOT_EMAIL }} \
-                  --agree-tos \
-                  --no-eff-email \
-                  --non-interactive \
-                  -d ${DOMAIN}
-
-              docker stop certbot-nginx; docker rm certbot-nginx
-            else
-              echo "=== Cert already exists ==="
-            fi
+            CERT_PATH="${CERTBOT_CERTS}/live/${DOMAIN}/fullchain.pem"
 
             # Build services
             docker compose -f docker-compose.prod.yml build --no-cache \
               celery-scraper-worker celery-agent-worker \
               celery-beat celery-beat-worker core-api
 
-            # Start all services
+            # Start all with HTTP-only nginx first
+            cp infra/nginx/nginx.prod.conf infra/nginx/nginx.active.conf
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
             sleep 10
 
-            # Restart nginx last (picks up fresh IPs + cert)
-            docker compose -f docker-compose.prod.yml restart nginx
-            sleep 5
+            if [ ! -f "$CERT_PATH" ]; then
+              echo "=== Issuing Let's Encrypt cert ==="
+              docker stop certbot-nginx 2>/dev/null; docker rm certbot-nginx 2>/dev/null || true
 
-            echo "=== Containers ==="
+              CERTBOT_WWW=$(docker volume inspect nexus_certbot_www --format '{{.Mountpoint}}')
+              docker run -d --name certbot-nginx \
+                -p 80:80 \
+                -v ${CERTBOT_WWW}:/var/www/certbot \
+                nginx:alpine sh -c "echo 'server{listen 80;location /.well-known/acme-challenge/{root /var/www/certbot;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+              sleep 3
+
+              docker run --rm \
+                -v nexus_certbot_www:/var/www/certbot \
+                -v nexus_certbot_certs:/etc/letsencrypt \
+                certbot/certbot certonly \
+                  --webroot --webroot-path=/var/www/certbot \
+                  --email ${{ secrets.CERTBOT_EMAIL }} \
+                  --agree-tos --no-eff-email --non-interactive \
+                  -d ${DOMAIN} && echo "CERT_ISSUED=yes" || echo "CERT_FAILED=yes"
+
+              docker stop certbot-nginx; docker rm certbot-nginx
+            fi
+
+            # If cert exists, switch to SSL config
+            if [ -f "$CERT_PATH" ]; then
+              echo "=== Cert found — switching to SSL nginx config ==="
+              cp infra/nginx/nginx.ssl.conf infra/nginx/nginx.prod.conf
+              docker compose -f docker-compose.prod.yml restart nginx
+              sleep 5
+              echo "=== HTTPS test ==="
+              curl -sk -o /dev/null -w "https: %{http_code}\n" https://localhost/health
+            else
+              echo "=== No cert yet — running HTTP only on 8080 ==="
+              docker compose -f docker-compose.prod.yml restart nginx
+            fi
+
+            echo "=== All containers ==="
             docker ps --format "table {{.Names}}\t{{.Status}}" | grep nexus
-
-            echo "=== SSL test ==="
-            curl -sk -o /dev/null -w "https 443: %{http_code}\n" https://localhost/health
             curl -s -o /dev/null -w "http 8080: %{http_code}\n" http://localhost:8080/health
-
             echo "Deploy complete"
