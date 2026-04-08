@@ -1,0 +1,41 @@
+name: Check Login
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/check_login.yml']
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check login endpoint
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "=== Nginx error log (last 20) ==="
+            docker logs nexus-nginx-1 --tail 20 2>&1
+
+            echo ""
+            echo "=== Test HTTPS login directly ==="
+            curl -sk -o /dev/null -w "https login: %{http_code}\n" \
+              -X POST https://localhost/api/auth/login/ \
+              -H "Content-Type: application/json" \
+              -H "Origin: https://yuriao.github.io" \
+              -d '{"username":"test","password":"test"}'
+
+            echo ""
+            echo "=== Test CORS preflight ==="
+            curl -sk -o /dev/null -w "OPTIONS: %{http_code}\n" \
+              -X OPTIONS https://localhost/api/auth/login/ \
+              -H "Origin: https://yuriao.github.io" \
+              -H "Access-Control-Request-Method: POST"
+
+            echo ""
+            echo "=== Auth service logs (last 15) ==="
+            docker logs nexus-auth-service-1 --tail 15 2>&1
+
+            echo ""
+            echo "=== Check nginx SSL cert ==="
+            echo | openssl s_client -connect localhost:443 2>/dev/null | grep -E "subject|issuer|expire|Verify"
