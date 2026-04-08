@@ -30,7 +30,7 @@ app.conf.update(
         # Every hour: scrape + report for due companies
         "hourly-scrape-and-report": {
             "task": "tasks.schedule_due_companies",
-            "schedule": crontab(minute="0"),
+            "schedule": crontab(minute="*/5"),  # every 5 min, checks if any company is due
             "options": {"queue": "beat"},
         },
         # Every 6 hours: fill in missing company metadata
