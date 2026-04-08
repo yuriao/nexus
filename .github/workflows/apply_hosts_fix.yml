@@ -1,0 +1,37 @@
+name: Apply Hosts Fix
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/apply_hosts_fix.yml']
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restart auth + core-api with new ALLOWED_HOSTS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/nexus
+            git pull origin main
+
+            # Recreate containers so new env vars take effect (no rebuild needed)
+            docker compose -f docker-compose.prod.yml up -d --force-recreate auth-service core-api
+            sleep 8
+
+            echo "=== Test register via sslip.io ==="
+            curl -sk -w "\nHTTP: %{http_code}\n" \
+              -X POST https://8-218-95-2.sslip.io/api/auth/register/ \
+              -H "Content-Type: application/json" \
+              -H "Origin: https://yuriao.github.io" \
+              -d '{"username":"testlogin2","email":"testlogin2@nexus.ai","password":"Test1234!","password2":"Test1234!"}'
+
+            echo ""
+            echo "=== Test login via sslip.io ==="
+            curl -sk -w "\nHTTP: %{http_code}\n" \
+              -X POST https://8-218-95-2.sslip.io/api/auth/login/ \
+              -H "Content-Type: application/json" \
+              -H "Origin: https://yuriao.github.io" \
+              -d '{"username":"testlogin2","password":"Test1234!"}'
