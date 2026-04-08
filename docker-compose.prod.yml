@@ -173,10 +173,15 @@ services:
   nginx:
     image: nginx:alpine
     restart: unless-stopped
-    ports: ["8080:8080"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
     volumes:
       - ./infra/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - ./frontend_dist:/usr/share/nginx/html/nexus-dashboard:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_certs:/etc/letsencrypt:ro
     depends_on: [auth-service, core-api]
     networks: [nexus-net]
 
@@ -184,6 +189,8 @@ volumes:
   mysql_data:
   redis_data:
   beat_data:
+  certbot_www:
+  certbot_certs:
 
 networks:
   nexus-net:
