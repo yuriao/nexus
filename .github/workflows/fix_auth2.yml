@@ -1,0 +1,48 @@
+name: Fix Auth 2
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/fix_auth2.yml']
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rebuild auth + check logs
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/nexus
+            git pull origin main
+
+            echo "=== Auth logs before rebuild ==="
+            docker logs nexus-auth-service-1 --tail 20 2>&1
+
+            docker compose -f docker-compose.prod.yml stop auth-service
+            docker rm nexus-auth-service-1 2>/dev/null || true
+            docker rmi nexus-auth-service 2>/dev/null || true
+            docker compose -f docker-compose.prod.yml build --no-cache auth-service
+            docker compose -f docker-compose.prod.yml up -d auth-service
+            sleep 8
+
+            echo "=== Auth logs after rebuild ==="
+            docker logs nexus-auth-service-1 --tail 20 2>&1
+
+            echo "=== Auth status ==="
+            docker ps --format "{{.Names}}\t{{.Status}}" | grep auth
+
+            echo "=== Test login ==="
+            curl -sk -w "\nHTTP: %{http_code}\n" \
+              -X POST https://localhost/api/auth/login/ \
+              -H "Content-Type: application/json" \
+              -H "Origin: https://yuriao.github.io" \
+              -d '{"username":"admin","password":"wrongpass"}'
+
+            echo "=== CORS check ==="
+            curl -sk -D - -o /dev/null \
+              -X POST https://localhost/api/auth/login/ \
+              -H "Content-Type: application/json" \
+              -H "Origin: https://yuriao.github.io" \
+              -d '{"username":"x","password":"x"}' | grep -iE "access-control|HTTP/"
