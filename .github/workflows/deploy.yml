@@ -42,35 +42,28 @@ jobs:
             echo "=== Containers ==="
             docker ps --format "table {{.Names}}\t{{.Status}}" | grep nexus
 
-            echo "=== SCRAPER WORKER LOGS ==="
-            docker logs nexus-celery-scraper-worker-1 --tail 30 2>&1
+            echo "=== Scraper logs ==="
+            docker logs nexus-celery-scraper-worker-1 --tail 20 2>&1
 
-            echo "=== DATAPOINTS IN DB ==="
-            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
-              -e "SELECT company_id, source_type, COUNT(*) as cnt FROM companies_datapoint GROUP BY company_id, source_type;" 2>/dev/null
+            echo "=== DataPoints ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core -e "SELECT company_id, source_type, COUNT(*) cnt FROM companies_datapoint GROUP BY company_id, source_type;" 2>/dev/null
 
-            echo "=== COMPANIES ==="
-            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
-              -e "SELECT id, name, domain, last_crawled_at FROM companies_company;" 2>/dev/null
+            echo "=== Companies ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core -e "SELECT id, name, last_crawled_at FROM companies_company;" 2>/dev/null
 
-            echo "=== BEAT WORKER LOGS ==="
-            docker logs nexus-celery-beat-worker-1 --tail 15 2>&1
+            echo "=== Trigger scrapes ==="
+            docker exec nexus-celery-scraper-worker-1 python3 << 'PYEOF'
+            import sys; sys.path.insert(0, '/app')
+            from celery_app import app
+            import MySQLdb
+            db = MySQLdb.connect(host='mysql',user='nexus',passwd='nexus_secret',db='nexus_core')
+            cur = db.cursor()
+            cur.execute('SELECT id, name FROM companies_company LIMIT 10')
+            for cid, name in cur.fetchall():
+                r = app.send_task('tasks.run_company_scrape', kwargs={'company_id': cid}, queue='scraper')
+                print(f'Dispatched: {name} (id={cid}): {r.id}')
+            db.close()
+            PYEOF
 
-            echo "=== MANUALLY TRIGGER SCRAPE ==="
-            docker exec nexus-celery-scraper-worker-1 python3 -c "
-import sys; sys.path.insert(0, '/app')
-from celery_app import app
-import MySQLdb, os
-db = MySQLdb.connect(host='mysql',user='nexus',passwd='nexus_secret',db='nexus_core')
-cur = db.cursor()
-cur.execute('SELECT id, name FROM companies_company LIMIT 10')
-companies = cur.fetchall()
-db.close()
-for cid, name in companies:
-    r = app.send_task('tasks.run_company_scrape', kwargs={'company_id': cid}, queue='scraper')
-    print(f'Dispatched scrape for {name} (id={cid}): {r.id}')
-" 2>&1
-
-            echo "=== HTTPS ==="
             curl -sk -o /dev/null -w "https: %{http_code}\n" https://localhost/health
             echo "Deploy complete"
