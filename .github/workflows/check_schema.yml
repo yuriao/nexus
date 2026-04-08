@@ -1,0 +1,21 @@
+name: Check Schema
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/check_schema.yml']
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check DB schema
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
+              -e "DESCRIBE reports_researchreport;" 2>/dev/null
+            echo "---"
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
+              -e "DESCRIBE companies_company;" 2>/dev/null
