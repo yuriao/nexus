@@ -9,7 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Deploy with SSL
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -20,81 +19,58 @@ jobs:
             cd /opt/nexus
             git stash && git fetch origin main && git reset --hard origin/main
 
-            # Ensure metrics table
-            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core 2>/dev/null << 'SQL'
-            CREATE TABLE IF NOT EXISTS companies_companymetric (
-              id VARCHAR(32) NOT NULL PRIMARY KEY,
-              company_id INT NOT NULL,
-              report_id VARCHAR(36) NOT NULL DEFAULT '',
-              metric_code VARCHAR(3) NOT NULL,
-              metric_name VARCHAR(200) NOT NULL,
-              unit VARCHAR(50) NOT NULL,
-              value DECIMAL(18,4) NULL,
-              confidence VARCHAR(20) NOT NULL DEFAULT 'low',
-              source TEXT NOT NULL DEFAULT '',
-              note TEXT NOT NULL DEFAULT '',
-              calculated_at DATETIME(6) NOT NULL,
-              created_at DATETIME(6) NOT NULL,
-              INDEX idx_company_metric_calc (company_id, metric_code, calculated_at),
-              CONSTRAINT fk_metric_company FOREIGN KEY (company_id)
-                REFERENCES companies_company(id) ON DELETE CASCADE
-            );
-            SQL
-
             DOMAIN="8-218-95-2.sslip.io"
             docker volume create nexus_certbot_www 2>/dev/null || true
             docker volume create nexus_certbot_certs 2>/dev/null || true
             CERTBOT_CERTS=$(docker volume inspect nexus_certbot_certs --format '{{.Mountpoint}}')
             CERT_PATH="${CERTBOT_CERTS}/live/${DOMAIN}/fullchain.pem"
 
-            # Build services
             docker compose -f docker-compose.prod.yml build --no-cache \
               celery-scraper-worker celery-agent-worker \
               celery-beat celery-beat-worker core-api auth-service
 
-            # Start all with HTTP-only nginx first
-            cp infra/nginx/nginx.prod.conf infra/nginx/nginx.active.conf
             docker compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate auth-service core-api
             docker compose -f docker-compose.prod.yml up -d
             sleep 10
 
-            if [ ! -f "$CERT_PATH" ]; then
-              echo "=== Issuing Let's Encrypt cert ==="
-              docker stop certbot-nginx 2>/dev/null; docker rm certbot-nginx 2>/dev/null || true
-
-              CERTBOT_WWW=$(docker volume inspect nexus_certbot_www --format '{{.Mountpoint}}')
-              docker run -d --name certbot-nginx \
-                -p 80:80 \
-                -v ${CERTBOT_WWW}:/var/www/certbot \
-                nginx:alpine sh -c "echo 'server{listen 80;location /.well-known/acme-challenge/{root /var/www/certbot;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
-              sleep 3
-
-              docker run --rm \
-                -v nexus_certbot_www:/var/www/certbot \
-                -v nexus_certbot_certs:/etc/letsencrypt \
-                certbot/certbot certonly \
-                  --webroot --webroot-path=/var/www/certbot \
-                  --email ${{ secrets.CERTBOT_EMAIL }} \
-                  --agree-tos --no-eff-email --non-interactive \
-                  -d ${DOMAIN} && echo "CERT_ISSUED=yes" || echo "CERT_FAILED=yes"
-
-              docker stop certbot-nginx; docker rm certbot-nginx
-            fi
-
-            # If cert exists, switch to SSL config
             if [ -f "$CERT_PATH" ]; then
-              echo "=== Cert found — switching to SSL nginx config ==="
               cp infra/nginx/nginx.ssl.conf infra/nginx/nginx.prod.conf
-              docker compose -f docker-compose.prod.yml restart nginx
-              sleep 5
-              echo "=== HTTPS test ==="
-              curl -sk -o /dev/null -w "https: %{http_code}\n" https://localhost/health
-            else
-              echo "=== No cert yet — running HTTP only on 8080 ==="
-              docker compose -f docker-compose.prod.yml restart nginx
             fi
+            docker compose -f docker-compose.prod.yml restart nginx
+            sleep 5
 
-            echo "=== All containers ==="
+            echo "=== Containers ==="
             docker ps --format "table {{.Names}}\t{{.Status}}" | grep nexus
-            curl -s -o /dev/null -w "http 8080: %{http_code}\n" http://localhost:8080/health
+
+            echo "=== SCRAPER WORKER LOGS ==="
+            docker logs nexus-celery-scraper-worker-1 --tail 30 2>&1
+
+            echo "=== DATAPOINTS IN DB ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
+              -e "SELECT company_id, source_type, COUNT(*) as cnt FROM companies_datapoint GROUP BY company_id, source_type;" 2>/dev/null
+
+            echo "=== COMPANIES ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
+              -e "SELECT id, name, domain, last_crawled_at FROM companies_company;" 2>/dev/null
+
+            echo "=== BEAT WORKER LOGS ==="
+            docker logs nexus-celery-beat-worker-1 --tail 15 2>&1
+
+            echo "=== MANUALLY TRIGGER SCRAPE ==="
+            docker exec nexus-celery-scraper-worker-1 python3 -c "
+import sys; sys.path.insert(0, '/app')
+from celery_app import app
+import MySQLdb, os
+db = MySQLdb.connect(host='mysql',user='nexus',passwd='nexus_secret',db='nexus_core')
+cur = db.cursor()
+cur.execute('SELECT id, name FROM companies_company LIMIT 10')
+companies = cur.fetchall()
+db.close()
+for cid, name in companies:
+    r = app.send_task('tasks.run_company_scrape', kwargs={'company_id': cid}, queue='scraper')
+    print(f'Dispatched scrape for {name} (id={cid}): {r.id}')
+" 2>&1
+
+            echo "=== HTTPS ==="
+            curl -sk -o /dev/null -w "https: %{http_code}\n" https://localhost/health
             echo "Deploy complete"
