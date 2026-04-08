@@ -1,0 +1,50 @@
+name: Hard Restart Auth
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/hard_restart.yml']
+jobs:
+  restart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hard restart auth with new env
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/nexus
+            git pull origin main
+
+            # Stop and remove auth container completely
+            docker stop nexus-auth-service-1 2>/dev/null || true
+            docker rm nexus-auth-service-1 2>/dev/null || true
+
+            # Start fresh with new env
+            docker compose -f docker-compose.prod.yml up -d auth-service
+            sleep 8
+
+            echo "=== Verify new env ==="
+            docker exec nexus-auth-service-1 env | grep ALLOWED_HOSTS
+
+            echo ""
+            echo "=== Test register directly via Python (auth internal) ==="
+            docker exec nexus-auth-service-1 python3 -c "
+import urllib.request, json
+data = json.dumps({'username':'testuser99','email':'t99@test.com','password':'Test1234!','password2':'Test1234!'}).encode()
+req = urllib.request.Request('http://localhost:8001/api/auth/register/', data=data, headers={'Content-Type':'application/json','Host':'localhost'})
+try:
+    r = urllib.request.urlopen(req)
+    print('OK:', r.status, r.read()[:200])
+except Exception as e:
+    print('ERR:', e)
+"
+
+            echo ""
+            echo "=== Test login via sslip.io domain ==="
+            curl -sk -w "\nHTTP: %{http_code}\n" \
+              -X POST https://8-218-95-2.sslip.io/api/auth/register/ \
+              -H "Content-Type: application/json" \
+              -H "Origin: https://yuriao.github.io" \
+              -d '{"username":"testuser99","email":"t99@test.com","password":"Test1234!","password2":"Test1234!"}'
