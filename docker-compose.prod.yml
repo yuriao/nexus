@@ -56,7 +56,7 @@ services:
     environment:
       <<: *common-env
       DB_NAME: ${AUTH_DB_NAME:-nexus_auth}
-      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,auth-service,nginx,${SERVER_HOST:-8.218.95.2}"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,auth-service,nginx,8.218.95.2,8-218-95-2.sslip.io,${SERVER_HOST:-8.218.95.2}"
       JWT_ACCESS_TOKEN_LIFETIME_MINUTES: ${JWT_ACCESS_TOKEN_LIFETIME_MINUTES:-60}
       JWT_REFRESH_TOKEN_LIFETIME_DAYS: ${JWT_REFRESH_TOKEN_LIFETIME_DAYS:-7}
     depends_on:
@@ -75,7 +75,7 @@ services:
     environment:
       <<: *common-env
       DB_NAME: ${DB_NAME:-nexus_core}
-      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,core-api,nginx,${SERVER_HOST:-8.218.95.2}"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,core-api,nginx,8.218.95.2,8-218-95-2.sslip.io,${SERVER_HOST:-8.218.95.2}"
     depends_on:
       mysql: { condition: service_healthy }
       redis:  { condition: service_healthy }
