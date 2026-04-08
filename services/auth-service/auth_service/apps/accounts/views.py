@@ -1,4 +1,4 @@
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -38,9 +38,46 @@ class RegisterView(generics.CreateAPIView):
         )
 
 
-class LoginView(TokenObtainPairView):
-    """POST /api/auth/login/ — obtain JWT token pair."""
+class LoginView(APIView):
+    """
+    POST /api/auth/login/ — obtain JWT token pair.
+    Accepts: { username, password } or { email, password }
+    """
     permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        username = request.data.get("username") or request.data.get("email", "")
+        password = request.data.get("password", "")
+
+        if not username or not password:
+            return Response(
+                {"detail": "username/email and password are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Try username directly first
+        user = authenticate(request, username=username, password=password)
+
+        # If that fails, try looking up by email
+        if user is None:
+            try:
+                u = User.objects.get(email=username)
+                user = authenticate(request, username=u.username, password=password)
+            except User.DoesNotExist:
+                pass
+
+        if user is None:
+            return Response(
+                {"detail": "No active account found with the given credentials."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user": UserSerializer(user).data,
+        })
 
 
 class RefreshView(TokenRefreshView):
