@@ -1,0 +1,47 @@
+name: Scraper Live Check
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/scraper_live_check.yml']
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Live scraper check
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "=== Scraper worker logs ==="
+            docker logs nexus-celery-scraper-worker-1 --tail 40 2>&1
+
+            echo ""
+            echo "=== DataPoints in DB ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
+              -e "SELECT company_id, source_type, COUNT(*) as cnt FROM companies_datapoint GROUP BY company_id, source_type;" 2>/dev/null
+
+            echo ""
+            echo "=== Companies and last_crawled_at ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
+              -e "SELECT id, name, last_crawled_at FROM companies_company;" 2>/dev/null
+
+            echo ""
+            echo "=== Beat worker logs (last 20) ==="
+            docker logs nexus-celery-beat-worker-1 --tail 20 2>&1
+
+            echo ""
+            echo "=== Manually trigger scrape for all companies ==="
+            docker exec nexus-celery-scraper-worker-1 python3 -c "
+import os, sys
+sys.path.insert(0, '/app')
+from celery_app import app
+companies = [1, 2, 3, 4, 5]
+for cid in companies:
+    try:
+        r = app.send_task('tasks.run_company_scrape', kwargs={'company_id': cid}, queue='scraper')
+        print(f'Dispatched scrape for company {cid}: {r.id}')
+    except Exception as e:
+        print(f'Skip company {cid}: {e}')
+" 2>&1
