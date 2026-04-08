@@ -1,0 +1,55 @@
+name: Test Login Full
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/test_login_full.yml']
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Full login flow test
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "=== Existing users in DB ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_auth \
+              -e "SELECT id, username, email, is_active, date_joined FROM auth_user;" 2>/dev/null
+
+            echo ""
+            echo "=== Test 1: Login with username (what frontend sends) ==="
+            curl -sk -w "\nHTTP: %{http_code}\n" \
+              -X POST https://8-218-95-2.sslip.io/api/auth/login/ \
+              -H "Content-Type: application/json" \
+              -H "Origin: https://yuriao.github.io" \
+              -H "Referer: https://yuriao.github.io/" \
+              -d '{"username":"admin","password":"admin123"}'
+
+            echo ""
+            echo "=== Test 2: Register a fresh test user ==="
+            curl -sk -w "\nHTTP: %{http_code}\n" \
+              -X POST https://8-218-95-2.sslip.io/api/auth/register/ \
+              -H "Content-Type: application/json" \
+              -H "Origin: https://yuriao.github.io" \
+              -d '{"username":"testlogin","email":"testlogin@nexus.ai","password":"Test1234!","password2":"Test1234!"}'
+
+            echo ""
+            echo "=== Test 3: Login with the new test user ==="
+            curl -sk -w "\nHTTP: %{http_code}\n" \
+              -X POST https://8-218-95-2.sslip.io/api/auth/login/ \
+              -H "Content-Type: application/json" \
+              -H "Origin: https://yuriao.github.io" \
+              -d '{"username":"testlogin","password":"Test1234!"}'
+
+            echo ""
+            echo "=== Test 4: Use the token to hit /api/companies/ ==="
+            TOKEN=$(curl -sk -X POST https://8-218-95-2.sslip.io/api/auth/login/ \
+              -H "Content-Type: application/json" \
+              -d '{"username":"testlogin","password":"Test1234!"}' | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('access','NO_TOKEN'))")
+            echo "Token: ${TOKEN:0:40}..."
+            curl -sk -w "\nHTTP: %{http_code}\n" \
+              https://8-218-95-2.sslip.io/api/companies/ \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Origin: https://yuriao.github.io"
