@@ -1,0 +1,46 @@
+name: Check Scraper Data
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/check_scraper.yml']
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check scraper status and data
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "=== Scraper worker status ==="
+            docker ps --format "{{.Names}}\t{{.Status}}" | grep scraper-worker
+
+            echo ""
+            echo "=== Scraper worker logs (last 50) ==="
+            docker logs nexus-celery-scraper-worker-1 --tail 50 2>&1
+
+            echo ""
+            echo "=== DataPoint count in DB ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
+              -e "SELECT company_id, source_type, COUNT(*) as cnt FROM companies_datapoint GROUP BY company_id, source_type ORDER BY company_id;" 2>/dev/null
+
+            echo ""
+            echo "=== Recent reports status ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
+              -e "SELECT id, company_id, status, confidence_score, created_at FROM reports_researchreport ORDER BY created_at DESC LIMIT 5;" 2>/dev/null
+
+            echo ""
+            echo "=== Beat scheduler log (last 20) ==="
+            docker logs nexus-celery-beat-1 --tail 20 2>&1
+
+            echo ""
+            echo "=== Manually trigger a scrape for company 1 ==="
+            docker exec nexus-celery-agent-worker-1 python3 -c "
+from celery import current_app
+import os
+app = current_app
+r = app.send_task('tasks.run_company_scrape', kwargs={'company_id': 1}, queue='scraper')
+print('Dispatched scrape task:', r.id)
+" 2>/dev/null || echo "Could not dispatch from agent worker"
