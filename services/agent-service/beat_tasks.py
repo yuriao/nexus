@@ -88,8 +88,8 @@ def _dispatch_scrape_and_report(company_id: int):
         rid = report_id.replace("-", "")
         cur.execute(
             """INSERT INTO reports_researchreport
-               (id, company_id, version, status, requested_by_user_id, created_at, updated_at)
-               VALUES (%s, %s, %s, 'pending', 0, NOW(), NOW())""",
+               (id, company_id, version, status, requested_by_user_id, created_at)
+               VALUES (%s, %s, %s, 'pending', 0, NOW())""",
             (rid, company_id, version)
         )
         db.commit()
