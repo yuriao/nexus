@@ -84,19 +84,6 @@ services:
              daphne -b 0.0.0.0 -p 8000 core_api.asgi:application"
     networks: [nexus-net]
 
-  agent-service:
-    build:
-      context: ./services/agent-service
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    environment:
-      <<: *common-env
-      DB_NAME: ${DB_NAME:-nexus_core}
-    depends_on:
-      mysql: { condition: service_healthy }
-      redis:  { condition: service_healthy }
-    networks: [nexus-net]
-
   celery-agent-worker:
     build:
       context: ./services/agent-service
@@ -106,20 +93,6 @@ services:
       <<: *common-env
       DB_NAME: ${DB_NAME:-nexus_core}
     command: celery -A celery_app worker -Q agent -c 2 -l info --without-gossip
-    depends_on:
-      mysql: { condition: service_healthy }
-      redis:  { condition: service_healthy }
-    networks: [nexus-net]
-
-  scraper-service:
-    build:
-      context: ./services/scraper-service
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    environment:
-      <<: *common-env
-      DB_NAME: ${DB_NAME:-nexus_core}
-      SELENIUM_HEADLESS: "true"
     depends_on:
       mysql: { condition: service_healthy }
       redis:  { condition: service_healthy }
