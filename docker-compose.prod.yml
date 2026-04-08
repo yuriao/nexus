@@ -16,6 +16,7 @@ x-common-env: &common-env
   MOONSHOT_API_KEY: ${MOONSHOT_API_KEY}
   OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.moonshot.cn/v1}
   BRAVE_API_KEY: ${BRAVE_API_KEY}
+  CORS_ALLOWED_ORIGINS: "https://yuriao.github.io,http://localhost:3000,http://localhost:8080"
 
 services:
   mysql:
