@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy auto-scheduling + scraper fix
+      - name: Deploy with SSL
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -41,29 +41,72 @@ jobs:
             );
             SQL
 
-            # Build all services (scraper Dockerfile is now fixed)
+            # Step 1: Start nginx on HTTP only first (for ACME challenge)
+            # Use a temp config that only serves port 80 before we have the cert
+            CERT_PATH="/etc/letsencrypt/live/8-218-95-2.sslip.io/fullchain.pem"
+
+            if [ ! -f "$CERT_PATH" ]; then
+              echo "=== No cert found — getting Let's Encrypt cert ==="
+
+              # Start nginx with HTTP-only config for ACME challenge
+              docker run -d --name certbot-nginx \
+                -p 80:80 \
+                -v $(docker volume inspect nexus_certbot_www --format '{{.Mountpoint}}' 2>/dev/null || echo /tmp/certbot_www):/var/www/certbot \
+                nginx:alpine sh -c "
+                  mkdir -p /var/www/certbot
+                  cat > /etc/nginx/conf.d/default.conf << 'EOF'
+            server {
+              listen 80;
+              location /.well-known/acme-challenge/ { root /var/www/certbot; }
+              location / { return 200 'ok'; }
+            }
+            EOF
+                  nginx -g 'daemon off;'" 2>&1 || echo "certbot-nginx already running"
+
+              sleep 3
+
+              # Create volumes if they don't exist
+              docker volume create nexus_certbot_www 2>/dev/null || true
+              docker volume create nexus_certbot_certs 2>/dev/null || true
+
+              # Run certbot
+              docker run --rm \
+                -v nexus_certbot_www:/var/www/certbot \
+                -v nexus_certbot_certs:/etc/letsencrypt \
+                certbot/certbot certonly \
+                  --webroot \
+                  --webroot-path=/var/www/certbot \
+                  --email admin@nexus.local \
+                  --agree-tos \
+                  --no-eff-email \
+                  --non-interactive \
+                  -d 8-218-95-2.sslip.io 2>&1
+
+              # Stop temp nginx
+              docker stop certbot-nginx 2>/dev/null || true
+              docker rm certbot-nginx 2>/dev/null || true
+            else
+              echo "=== Cert already exists, skipping certbot ==="
+            fi
+
+            # Step 2: Build and start all services
             docker compose -f docker-compose.prod.yml build --no-cache \
               celery-scraper-worker celery-agent-worker \
               celery-beat celery-beat-worker core-api
 
-            # Start everything
-            docker compose -f docker-compose.prod.yml up -d --force-recreate \
-              celery-scraper-worker celery-agent-worker \
-              celery-beat celery-beat-worker core-api
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
             sleep 10
 
-            echo "=== Running containers ==="
+            # Step 3: Always restart nginx last
+            docker compose -f docker-compose.prod.yml restart nginx
+            sleep 5
+
+            echo "=== Containers ==="
             docker ps --format "table {{.Names}}\t{{.Status}}" | grep nexus
 
-            echo "=== Beat scheduler log ==="
-            docker logs nexus-celery-beat-1 --tail 15 2>&1 || \
-            docker logs $(docker ps --format '{{.Names}}' | grep celery-beat$) --tail 15 2>&1
+            echo "=== SSL test ==="
+            curl -sk -o /dev/null -w "https 443: %{http_code}\n" https://localhost/health || echo "https not yet ready"
+            curl -s -o /dev/null -w "http 8080: %{http_code}\n" http://localhost:8080/health
 
-            echo "=== Scraper worker status ==="
-            docker ps --format "{{.Names}}\t{{.Status}}" | grep scraper
-
-            # Always restart nginx last so it resolves fresh container IPs
-            docker compose -f docker-compose.prod.yml restart nginx
-            sleep 3
             echo "Deploy complete"
