@@ -1,0 +1,41 @@
+name: Clean Rebuild Auth
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/clean_rebuild_auth.yml']
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clean disk + rebuild auth
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/nexus
+            git pull origin main
+
+            echo "=== Free disk ==="
+            docker system prune -af --volumes=false 2>&1 | tail -3
+            df -h / | tail -1
+
+            echo "=== Rebuild auth ==="
+            docker compose -f docker-compose.prod.yml build --no-cache auth-service
+            docker compose -f docker-compose.prod.yml up -d --force-recreate auth-service
+            sleep 8
+
+            echo "=== Test login ==="
+            curl -sk -w "\nHTTP: %{http_code}\n" \
+              -X POST https://localhost/api/auth/login/ \
+              -H "Content-Type: application/json" \
+              -H "Origin: https://yuriao.github.io" \
+              -d '{"username":"admin","password":"wrongpass"}'
+
+            echo "=== CORS ==="
+            curl -sk -D - -o /dev/null \
+              -X POST https://localhost/api/auth/login/ \
+              -H "Content-Type: application/json" \
+              -H "Origin: https://yuriao.github.io" \
+              -d '{"username":"x","password":"x"}' | grep -iE "access-control|HTTP/"
