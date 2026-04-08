@@ -1,0 +1,44 @@
+name: Quick Check
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/quick_check.yml']
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Quick status check
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/nexus
+
+            echo "=== All containers ==="
+            docker ps --format "table {{.Names}}\t{{.Status}}"
+
+            echo ""
+            echo "=== Start missing services ==="
+            docker compose -f docker-compose.prod.yml up -d
+            sleep 5
+            docker compose -f docker-compose.prod.yml restart nginx
+            sleep 3
+
+            echo ""
+            echo "=== Beat worker log - did schedule_due_companies fire? ==="
+            docker logs nexus-celery-beat-worker-1 --since 10m 2>&1 | grep -E "schedule_due|Dispatched|ERROR|company" | head -20
+
+            echo ""
+            echo "=== Beat scheduler fired tasks? ==="
+            docker logs nexus-celery-beat-1 --since 10m 2>&1 | grep -E "Scheduler|INFO" | head -20
+
+            echo ""
+            echo "=== Scraper worker recent activity ==="
+            docker logs nexus-celery-scraper-worker-1 --since 10m 2>&1 | grep -v "celery\|INFO/Main\|transport\|results\|concurrency\|queues\|tasks\.\|2026-04" | head -20
+
+            echo ""
+            echo "=== DataPoints ==="
+            docker exec nexus-mysql-1 mysql -unexus -pnexus_secret nexus_core \
+              -e "SELECT company_id, source_type, COUNT(*) cnt FROM companies_datapoint GROUP BY 1,2;" 2>/dev/null
