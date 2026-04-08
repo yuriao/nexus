@@ -1,0 +1,36 @@
+name: Deep Debug
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/deep_debug.yml']
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deep debug auth
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/nexus
+            git pull origin main
+
+            echo "=== Current ALLOWED_HOSTS in running auth container ==="
+            docker exec nexus-auth-service-1 env | grep ALLOWED
+
+            echo ""
+            echo "=== What host header nginx sends ==="
+            docker exec nexus-nginx-1 cat /etc/nginx/nginx.conf | grep "proxy_set_header Host"
+
+            echo ""
+            echo "=== Test directly to auth service (bypass nginx) ==="
+            docker exec nexus-auth-service-1 curl -s -w "\nHTTP: %{http_code}\n" \
+              -X POST http://localhost:8001/api/auth/register/ \
+              -H "Content-Type: application/json" \
+              -d '{"username":"directtest","email":"dt@test.com","password":"Test1234!","password2":"Test1234!"}'
+
+            echo ""
+            echo "=== docker compose config for auth ALLOWED_HOSTS ==="
+            docker compose -f docker-compose.prod.yml config | grep -A3 -B3 "ALLOWED_HOSTS" | head -20
