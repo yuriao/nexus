@@ -50,11 +50,12 @@ jobs:
             # Build services
             docker compose -f docker-compose.prod.yml build --no-cache \
               celery-scraper-worker celery-agent-worker \
-              celery-beat celery-beat-worker core-api
+              celery-beat celery-beat-worker core-api auth-service
 
             # Start all with HTTP-only nginx first
             cp infra/nginx/nginx.prod.conf infra/nginx/nginx.active.conf
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate auth-service core-api
+            docker compose -f docker-compose.prod.yml up -d
             sleep 10
 
             if [ ! -f "$CERT_PATH" ]; then
