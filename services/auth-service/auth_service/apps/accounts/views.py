@@ -3,7 +3,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView
 
 from .models import APIKey
 from .serializers import (
@@ -40,33 +40,35 @@ class RegisterView(generics.CreateAPIView):
 
 class LoginView(APIView):
     """
-    POST /api/auth/login/ — obtain JWT token pair.
-    Accepts: { username, password } or { email, password }
+    POST /api/auth/login/
+    Accepts { username, password } or { email, password }.
+    Since USERNAME_FIELD=email, we resolve username → email then authenticate.
     """
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        username = request.data.get("username") or request.data.get("email", "")
+        identifier = request.data.get("username") or request.data.get("email", "")
         password = request.data.get("password", "")
 
-        if not username or not password:
+        if not identifier or not password:
             return Response(
                 {"detail": "username/email and password are required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Try username directly first
-        user = authenticate(request, username=username, password=password)
+        # USERNAME_FIELD is email — so authenticate() expects email as username kwarg
+        # First try treating identifier as email directly
+        user = authenticate(request, username=identifier, password=password)
 
-        # If that fails, try looking up by email
+        # If that fails, try looking up by username field → get their email
         if user is None:
             try:
-                u = User.objects.get(email=username)
-                user = authenticate(request, username=u.username, password=password)
+                u = User.objects.get(username=identifier)
+                user = authenticate(request, username=u.email, password=password)
             except User.DoesNotExist:
                 pass
 
-        if user is None:
+        if user is None or not user.is_active:
             return Response(
                 {"detail": "No active account found with the given credentials."},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -96,11 +98,6 @@ class MeView(generics.RetrieveUpdateAPIView):
 
 
 class APIKeyListCreateView(APIView):
-    """
-    GET  /api/auth/api-keys/ — list API keys for current user
-    POST /api/auth/api-keys/ — create a new API key (raw key shown once)
-    """
-
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
@@ -110,7 +107,6 @@ class APIKeyListCreateView(APIView):
     def post(self, request):
         create_ser = APIKeyCreateSerializer(data=request.data)
         create_ser.is_valid(raise_exception=True)
-
         instance, raw_key = APIKey.create_for_user(
             user=request.user,
             name=create_ser.validated_data["name"],
@@ -123,8 +119,6 @@ class APIKeyListCreateView(APIView):
 
 
 class APIKeyDestroyView(generics.DestroyAPIView):
-    """DELETE /api/auth/api-keys/{id}/ — revoke an API key."""
-
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
