@@ -24,16 +24,8 @@ jobs:
           envs: BRAVE_API_KEY,MOONSHOT_API_KEY,OPENAI_API_KEY,OPENAI_BASE_URL,DJANGO_SECRET_KEY
           script: |
             cd /opt/nexus
-            # Write .env with all secrets (injected via envs:)
-            printf 'BRAVE_API_KEY=%s
-MOONSHOT_API_KEY=%s
-OPENAI_API_KEY=%s
-OPENAI_BASE_URL=%s
-DJANGO_SECRET_KEY=%s
-DB_USER=nexus
-DB_PASSWORD=nexus_secret
-MYSQL_ROOT_PASSWORD=root_secret
-'               "$BRAVE_API_KEY" "$MOONSHOT_API_KEY" "$OPENAI_API_KEY" "$OPENAI_BASE_URL" "$DJANGO_SECRET_KEY" > .env
+            # Write .env with secrets (injected via appleboy envs:)
+            { echo "BRAVE_API_KEY=$BRAVE_API_KEY"; echo "MOONSHOT_API_KEY=$MOONSHOT_API_KEY"; echo "OPENAI_API_KEY=$OPENAI_API_KEY"; echo "OPENAI_BASE_URL=$OPENAI_BASE_URL"; echo "DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY"; echo "DB_USER=nexus"; echo "DB_PASSWORD=nexus_secret"; echo "MYSQL_ROOT_PASSWORD=root_secret"; } > .env
             git stash && git fetch origin main && git reset --hard origin/main
 
             DOMAIN="8-218-95-2.sslip.io"
