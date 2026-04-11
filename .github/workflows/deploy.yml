@@ -17,6 +17,15 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             cd /opt/nexus
+            # Write secrets to .env for docker compose
+            cat > .env << 'ENVEOF'
+BRAVE_API_KEY=${{ secrets.BRAVE_API_KEY }}
+MOONSHOT_API_KEY=${{ secrets.MOONSHOT_API_KEY }}
+OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+OPENAI_BASE_URL=${{ secrets.OPENAI_BASE_URL }}
+DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+SERVER_HOST=${{ secrets.SERVER_HOST }}
+ENVEOF
             git stash && git fetch origin main && git reset --hard origin/main
 
             DOMAIN="8-218-95-2.sslip.io"
